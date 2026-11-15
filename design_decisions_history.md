@@ -69,3 +69,22 @@ collector is not part of the selected baseline.
   branch skips shutdown and image growth on the authorized verification rerun.
 - Source checks and actual next-job/post-proof outcomes remain distinct. Fix
   commit ID and final evidence follow after execution; no live Elastic claim.
+
+## 2026-11-15 — Correct state parsing using actual native evidence
+
+- Scalar fix commit: 9816bac934502069f73b8fe748385ef5ce735aed (0.0.3).
+  Its verification rerun skipped all six shutdown/image-growth tasks and
+  failed the nonempty parsed-state assertion; no repeated resize occurred.
+- Independent strict native/guest checks at 17:05:33.910601–17:05:37.832923 UTC
+  confirm twenty-GiB disk, grown XFS, preserved guest/native/GPT/filesystem
+  identities, all thirteen VM states/definitions and the original image hash.
+- Actual native output replayed through the exact source parser in cached
+  Core 2.20 reproduced zero parsed rows; ordinary Python parsing found thirteen.
+  This confirmed template backslash escaping, rather than physical preservation.
+- Decision: use an anchored, non-greedy expression without backslash escaping,
+  preserving the exact nonempty row-count and paired identity/state checks.
+  Actual-output positive replay parses thirteen rows. Negative cases and the
+  final corrected AAP run must pass before claiming playbook acceptance.
+- Version 0.0.4 remains a narrow compatibility correction. No broken-condition
+  setting, reduced verification, new dependency or access exception is selected.
+  Implementation commit and final execution proof follow after publication.

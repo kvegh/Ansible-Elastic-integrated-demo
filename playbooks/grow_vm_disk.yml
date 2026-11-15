@@ -396,9 +396,9 @@
         - name: Parse paired native domain names and states for preservation checks
           ansible.builtin.set_fact:
             __elastic_growth_state_pairs_before: >-
-              {{ __elastic_growth_states_before.stdout | regex_findall("(?ms)Domain: '([^']+)'\\s+state.state=([0-9]+)") }}
+              {{ __elastic_growth_states_before.stdout | regex_findall("(?ms)^Domain: '([^']+)'.*?^[ ]+state[.]state=([0-9]+)") }}
             __elastic_growth_state_pairs_after: >-
-              {{ __elastic_growth_states_after.stdout | regex_findall("(?ms)Domain: '([^']+)'\\s+state.state=([0-9]+)") }}
+              {{ __elastic_growth_states_after.stdout | regex_findall("(?ms)^Domain: '([^']+)'.*?^[ ]+state[.]state=([0-9]+)") }}
 
         - name: Verify the authorized capacity and preservation outcome
           ansible.builtin.assert:

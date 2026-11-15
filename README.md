@@ -34,7 +34,9 @@ VM history. It is preserved; it is not made public or silently overwritten.
   first run stopped at a tag guard; the corrected second run grew the disk and
   restarted the VM, then failed at final assertion parsing. Native readback
   confirms the VM running with a 20 GiB disk. Version 0.0.3 corrects that scalar;
-  full job acceptance and independent filesystem/preservation proof are pending.
+  independent native/guest checks confirm XFS growth and preservation. Version
+  0.0.4 fixes an escaped state-parser expression found by replaying actual native
+  output; full AAP acceptance of the corrected parser remains pending.
 - `playbooks/verify.yml`: method-independent supported-interface functional checks;
   source/syntax checks do not establish deployed Elastic functionality.
 - Elastic deployment/configuration playbooks follow the approved installation
@@ -53,6 +55,17 @@ private automation hub. Install no workstation tools implicitly. Check current
 certified content before introducing community collections or supporting code.
 Keep task output protected, TLS verification enabled, changes scoped to owned
 resources and tests limited to dedicated demo data.
+
+Run the small offline maintenance regressions with the existing Ansible
+execution environment (Python, PyYAML and `ansible-playbook` already included):
+
+```sh
+python3 -m unittest discover -s tests -p test_growth_contract.py -v
+```
+
+They load the actual guards, parser and final assertions, using generic data
+and local execution only. They test default/partial tags, conditional types and
+unchanged/missing/changed VM states; they never connect to a VM or resize a disk.
 
 The authoritative source version is in `VERSION`. See
 [decision history](design_decisions_history.md) for approvals, proposals and
