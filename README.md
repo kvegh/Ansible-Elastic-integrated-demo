@@ -31,7 +31,9 @@ VM history. It is preserved; it is not made public or silently overwritten.
 
 - `playbooks/grow_vm_disk.yml`: implemented narrow maintenance entry point;
   exact-owner checks and explicit growth authorization are required. Its
-  authorized AAP execution and independent post-growth verification are pending.
+  first AAP run stopped at a tag-sequence assertion before remote work. Version
+  0.0.2 uses the shared creator's compatible full-run predicates; authorized
+  execution and independent post-growth verification remain pending.
 - `playbooks/verify.yml`: method-independent supported-interface functional checks;
   source/syntax checks do not establish deployed Elastic functionality.
 - Elastic deployment/configuration playbooks follow the approved installation

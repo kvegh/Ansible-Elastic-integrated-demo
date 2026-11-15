@@ -12,7 +12,8 @@
       ansible.builtin.assert:
         that:
           - query('ansible.builtin.inventory_hostnames', 'hypervisor') | length == 1
-          - ansible_run_tags == ['all']
+          - ansible_run_tags | difference(['all']) | length == 0
+          - "'all' in ansible_run_tags"
           - ansible_skip_tags | length == 0
         fail_msg: Select exactly one existing hypervisor and run the complete maintenance playbook.
         quiet: true
@@ -30,7 +31,8 @@
       ansible.builtin.assert:
         that:
           - ansible_play_hosts_all | length == 1
-          - ansible_run_tags == ['all']
+          - ansible_run_tags | difference(['all']) | length == 0
+          - "'all' in ansible_run_tags"
           - ansible_skip_tags | length == 0
           - not ansible_check_mode
           - elastic_vm_growth_authorized | default(false) is sameas true

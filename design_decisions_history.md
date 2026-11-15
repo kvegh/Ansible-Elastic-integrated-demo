@@ -38,3 +38,18 @@ no alternate importer is selected. Elastic-to-AAP event triggering, monitored
 endpoint scope and a sample instrumented application still require qualification
 within the planned Basic subscription. Optional Logstash or a separate OTel
 collector is not part of the selected baseline.
+
+## 2026-11-15 16:43 UTC — Correct native tag-sequence comparison
+
+- Initial implementation commit: e28ccdc90b43e4e2b6941f770245da0ddcbbfb97,
+  version 0.0.1; public and encrypted companion baselines published and independently
+  read back. Maintenance source and functional checks passed target-runtime syntax;
+  functional checks also passed strict offline production lint. Live Elastic is absent.
+- Actual maintenance execution stopped at its first localhost assertion before any
+  managed-host change. Native cached Core 2.20 fixture confirmed that default tags
+  display as a one-item sequence but direct equality against a plain list is false.
+- Decision: reuse the maintained shared creator's difference-and-membership checks
+  in both guards. This preserves full-run-only behavior without relying on native
+  lazy sequence equality. No inventory change or security exception is needed.
+- Version 0.0.2 is a focused correction within authorized maintenance scope;
+  actual rerun and post-growth evidence remain pending. Fix commit ID follows.
