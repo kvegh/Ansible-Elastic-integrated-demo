@@ -78,11 +78,17 @@ python3 -m unittest discover -s tests -v
 They load actual source tasks with generic data and local execution only. They
 cover full-run authorization, parsed conditional types, unchanged/missing/changed
 VM states and the boundary preventing runtime metadata from replacing URLs or
-credentials. They never connect to a VM, install software or resize a disk.
+credentials. They also replay the Fleet agent-policy readback contract: creation-only hints
+are absent from persisted state, while drift in managed output settings must
+fail. They never connect to a VM, install software or resize a disk.
 
 The authoritative source version is in `VERSION`. See
 [decision history](design_decisions_history.md) for approvals, proposals and
-implementation evidence. This initial baseline does not claim Elastic is live.
+implementation evidence. The first RPM deployment installed the core services and exact integration
+packages, then failed the Fleet policy readback assertion. Version 0.1.1 corrects
+the creation-only hint comparison and reuses Fleet's existing generated server
+integration, preserving enrollment and credentials. Complete deployment, UI
+acceptance and repeat-run verification remain pending.
 
 ## Supporting tools
 

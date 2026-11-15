@@ -61,8 +61,8 @@ Kibana still needs its existing outbound registry access for the System package.
 
 ## Bootstrap and recovery
 
-The role creates a dedicated output and Fleet host, one Agent policy, and three
-integration policies with fixed project IDs. These configure Fleet Server,
+The role creates a dedicated output and Fleet host, one Agent policy, its single
+native-created Fleet Server integration, and fixed-ID APM and System policies. These configure Fleet Server,
 authenticated TLS APM intake with anonymous/RUM intake disabled, and System
 collection from the existing `/var/log/messages*` and `/var/log/secure*` files.
 The verified VM already runs rsyslog. CPU, memory and load are collected every
@@ -93,6 +93,38 @@ Package installs and resource creates/updates report changes. Read-before-write
 comparison avoids revising unchanged owned policies. The first and second real
 AAP deployment runs must still verify idempotency; it has not been demonstrated
 by source inspection or syntax checks.
+
+## Native Fleet Server policy ownership
+
+Kibana 9.5.6 treats `has_fleet_server` as a create-only hint. It removes that
+property from the ordinary Agent policy and automatically creates a Fleet Server
+integration with a generated ID and name. The hint therefore belongs only in
+`create_only_body`; PUT and strict desired-state comparison use persisted fields.
+Treating this hint as a persisted field caused the first deployment's Agent
+policy readback assertion to fail after Kibana had already created that child.
+
+The role requires exactly one Fleet Server integration on its owned parent,
+checks that it belongs only to that parent, matches the pinned package version,
+is neither preconfigured nor managed, and has either the observed native empty
+namespace or the configured namespace. It then preserves that integration's actual ID and name,
+sets its namespace and minimal variables explicitly, and requires strict API
+readback before enrollment. APM and System retain their fixed project IDs.
+There is no second Fleet Server integration, deletion, reset or broad adoption.
+Missing, multiple, shared or unexpected children fail for inspection.
+
+The exact-release simplified package-policy converter preserves the configured
+input IDs, scalar/array values and enabled flags; extra server defaults are
+allowed by the existing subset comparison. Creation forwards the supplied APM
+and System IDs separately from conversion. The pinned APM source manifest marks
+`secret_token` as `secret: false`; no secret-storage setting is changed. Actual
+API round-trips remain part of deployed verification.
+
+Source references:
+
+- [Create handler separates the hint](https://github.com/elastic/kibana/blob/v9.5.6/x-pack/platform/plugins/shared/fleet/server/routes/agent_policy/handlers.ts#L415)
+- [Native Fleet Server child creation](https://github.com/elastic/kibana/blob/v9.5.6/x-pack/platform/plugins/shared/fleet/server/services/agent_policy_create.ts#L249)
+- [Exact simplified conversion](https://github.com/elastic/kibana/blob/v9.5.6/x-pack/platform/plugins/shared/fleet/common/services/simplified_package_policy_helper.ts#L97)
+- [Integration creation preserves supplied ID](https://github.com/elastic/kibana/blob/v9.5.6/x-pack/platform/plugins/shared/fleet/server/routes/package_policy/handlers.ts#L322)
 
 ## Functional-test handoff
 
@@ -155,6 +187,8 @@ Primary references checked on 2026-11-15:
 - [Exact native Agent status schema](https://github.com/elastic/elastic-agent/blob/v9.5.6/pkg/control/v2/client/client.go)
 - [Official package registry](https://epr.elastic.co/search?package=system&kibana.version=9.5.6)
 
-No live Elastic installation, enrollment, idempotency run or end-to-end AAP test
-has occurred for this role yet. Static validation is development evidence only;
-it does not establish successful deployment or formal-review acceptance.
+The initial AAP deployment reached Fleet policy creation and stopped at the
+create-only-field readback assertion before token creation or Agent enrollment.
+The corrected full workflow, ingestion and repeated apply still require live
+verification. Static checks do not establish successful deployment or formal
+review acceptance.

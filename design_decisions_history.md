@@ -136,3 +136,50 @@ collector is not part of the selected baseline.
   and live complete AAP acceptance remain separate, and are pending here.
   Sample application instrumentation, endpoint prevention and a licensed or
   Basic-compatible event-to-AAP design remain explicitly unselected details.
+
+
+## 2026-11-15, 19:47 UTC — Correct Fleet creation-only policy fields
+
+- Initial RPM implementation: eb97e1c52dbae8bf81eb19c05d2a00ce64fb3008
+  (0.1.0), published with paired encrypted configuration. Core services passed
+  authenticated readiness and exact integration packages installed. The first
+  deployment failed at 19:42:05 UTC because the playbook required a Fleet
+  creation-only field in persisted readback. Complete functionality was not
+  established; no successful Agent enrollment or UI route is claimed.
+- Read-only API inspection confirms the owned agent policy exists with its
+  ordinary desired fields, no persisted `has_fleet_server` field, and one native
+  Fleet Server integration already created by that option. There are no enrolled
+  Agents and no local enrollment/token markers. Exact vendor source confirms
+  this convenience option is consumed during creation rather than persisted.
+- Treat the hint as creation-only; compare and update only persistent desired
+  fields. Validate and reuse the single native server integration under the
+  exact owned policy, including its existing ID/name. Preserve fixed APM/System
+  IDs, TLS checks, credentials, single-guest boundaries and strict readback.
+  This routine correction avoids duplicate integrations and unnecessary removal
+  or recreation of an already-created resource; it changes no architecture.
+- Version 0.1.1 adds an actual-source Ansible regression for native readback and
+  rejected managed-field drift. Target-runtime checks and a corrected complete
+  native run remain pending at this entry. The implementation hash follows
+  publication; private evidence retains the failed run and actual resource IDs.
+
+- Subsequent validation: all eight actual-source regressions passed in cached
+  Core 2.20.10/Python 3.12.15 (215.002 seconds). Strict offline production lint
+  passed for application entry points and imported roles: zero failures/warnings
+  across twenty files. The broader maintenance-inclusive lint additionally finds
+  two pre-existing long lines in the unchanged accepted growth playbook; no new
+  maintenance code is changed by this correction. Full APME scan is unavailable
+  without preparing a missing managed runtime; no tool was installed.
+
+## 2026-11-15 — Isolate the existing CaC importer source
+
+- Actual provider answer approved a separate native source Project for the
+  already-published generic importer at
+  3f9788d2db2ac71522bd6b64fad213624ac9aa10 (0.64.1). Exact answer timestamp is
+  not recorded here. Shared source pins remain unchanged.
+- This reuses the existing importer and credential types, with one fixed-ID
+  template and protected bootstrap definitions in the existing configuration
+  owner. Alternative: advancing the shared Project would affect unrelated
+  workstreams and was not selected. No new importer, catalog exposure, umbrella
+  submodule, event transport or additional component is selected.
+- Activation and complete import/repeat-readback remain pending. Public contract
+  documentation now reflects this approved scope rather than earlier proposals.

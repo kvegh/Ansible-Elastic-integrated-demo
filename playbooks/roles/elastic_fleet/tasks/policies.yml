@@ -3,10 +3,10 @@
   ansible.builtin.set_fact:
     __elastic_fleet_package_resources:
       - path: package_policies
-        id: elastic-demo-fleet-server-integration
+        id: "{{ __elastic_fleet_server_package_policy.id }}"
         query: '?format=simplified'
         body:
-          name: Elastic demo Fleet Server
+          name: "{{ __elastic_fleet_server_package_policy.name }}"
           description: Managed by Ansible-Elastic-integrated-demo; single-VM policy.
           namespace: "{{ elastic_fleet_namespace }}"
           policy_ids: ["{{ elastic_fleet_agent_policy_id }}"]

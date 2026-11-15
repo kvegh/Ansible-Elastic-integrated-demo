@@ -65,6 +65,59 @@ class DeploymentContractTests(unittest.TestCase):
                 result = self.run_task(task, {"elastic_demo_deploy_authorized": allowed}, options)
                 self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
 
+    def test_agent_policy_readback_accepts_create_only_hint_and_rejects_drift(self):
+        define = self.task("roles/elastic_fleet/tasks/main.yml", "Elastic Fleet | Define the single-host Fleet policy")
+        verify = self.task("roles/elastic_fleet/tasks/resource.yml",
+                           "Elastic Fleet | Require all explicitly configured fields to have survived API validation")
+        # Fleet's create hint is absent from the real 9.5.6 persisted policy.
+        observed = {
+            "id": "demo-policy", "name": "Elastic demo single VM",
+            "description": "Managed by Ansible-Elastic-integrated-demo; single-VM policy.",
+            "namespace": "demo", "monitoring_enabled": ["logs", "metrics"],
+            "data_output_id": "demo-output", "monitoring_output_id": "demo-output",
+            "fleet_server_host_id": "demo-fleet-host", "is_default": False,
+            "is_default_fleet_server": False, "revision": 1, "status": "active",
+            "package_policies": [{"id": "native-fleet-policy", "name": "fleet_server-1",
+                                  "package": {"name": "fleet_server", "version": "1.6.1"}}],
+        }
+        for drift, expected in [(False, 0), (True, 2)]:
+            with self.subTest(drift=drift):
+                item = copy.deepcopy(observed)
+                if drift:
+                    item["monitoring_output_id"] = "unexpected-output"
+                variables = {
+                    "elastic_fleet_agent_policy_id": "demo-policy",
+                    "elastic_fleet_namespace": "demo", "elastic_fleet_output_id": "demo-output",
+                    "elastic_fleet_host_id": "demo-fleet-host",
+                    "__elastic_fleet_resource": "{{ __elastic_fleet_policy_resource }}",
+                    "__elastic_fleet_final_resource": {"json": {"item": item}},
+                }
+                result = self.run_task({"name": "Replay native policy readback", "block": [define, verify]}, variables)
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+
+    def test_native_fleet_child_reuse_preserves_single_parent_boundary(self):
+        names = ["Identify Fleet Server integrations on the owned parent policy",
+                 "Require exactly one native Fleet Server integration before reuse",
+                 "Bind the one native Fleet Server integration",
+                 "Validate ownership and version before changing the native integration"]
+        tasks = [self.task("roles/elastic_fleet/tasks/main.yml", "Elastic Fleet | " + name) for name in names]
+        child = {"id": "native-fleet-policy", "name": "fleet_server-1", "namespace": "",
+                 "policy_ids": ["demo-policy"], "package": {"name": "fleet_server", "version": "1.6.1"}}
+        cases = [("native", [child], 0), ("missing", [], 2),
+                 ("duplicate", [child, copy.deepcopy(child)], 2)]
+        for key, value in [("policy_ids", ["demo-policy", "another-policy"]),
+                           ("namespace", "unrelated"), ("is_preconfigured", True)]:
+            changed = copy.deepcopy(child)
+            changed[key] = value
+            cases.append((key, [changed], 2))
+        for name, children, expected in cases:
+            with self.subTest(case=name):
+                variables = {"elastic_fleet_agent_policy_id": "demo-policy", "elastic_fleet_namespace": "demo",
+                             "elastic_fleet_server_package_version": "1.6.1",
+                             "__elastic_fleet_final_resource": {"json": {"item": {"package_policies": children}}}}
+                result = self.run_task({"name": "Replay native Fleet child ownership", "block": tasks}, variables)
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+
     def test_live_metadata_cannot_replace_urls_or_credentials(self):
         task = self.task("verify.yml", "Restrict live deployment metadata to trust and exact telemetry identity")
         for metadata, expected in [({"tls_ca_pem": "public-ca", "expected_agent_ids": ["demo-agent"]}, 0),

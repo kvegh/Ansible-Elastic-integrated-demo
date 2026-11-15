@@ -23,7 +23,10 @@
          (__elastic_fleet_resource.create_query | default(__elastic_fleet_resource.query)) }}
     method: POST
     body_format: json
-    body: "{{ __elastic_fleet_resource.body | combine({'id': __elastic_fleet_resource.id}) }}"
+    body: >-
+      {{ __elastic_fleet_resource.body |
+         combine(__elastic_fleet_resource.create_only_body | default({}), recursive=true) |
+         combine({'id': __elastic_fleet_resource.id}) }}
     status_code: 200
   when: __elastic_fleet_existing_resource.status == 404
   changed_when: true

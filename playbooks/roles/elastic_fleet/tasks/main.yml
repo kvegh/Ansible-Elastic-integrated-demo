@@ -164,6 +164,8 @@
               id: "{{ elastic_fleet_agent_policy_id }}"
               query: ''
               create_query: '?sys_monitoring=false'
+              create_only_body:
+                has_fleet_server: true
               body:
                 name: Elastic demo single VM
                 description: Managed by Ansible-Elastic-integrated-demo; single-VM policy.
@@ -174,12 +176,43 @@
                 fleet_server_host_id: "{{ elastic_fleet_host_id }}"
                 is_default: false
                 is_default_fleet_server: false
-                has_fleet_server: true
 
         - name: Elastic Fleet | Reconcile the single-host Fleet policy
           ansible.builtin.include_tasks: resource.yml
           vars:
             __elastic_fleet_resource: "{{ __elastic_fleet_policy_resource }}"
+
+        # The create-only Fleet hint creates one native integration with its own ID.
+        # Reuse that exact child instead of adding a second Fleet Server integration.
+        # Semantics: ../../../../docs/elastic-fleet.md#native-fleet-server-policy-ownership
+        - name: Elastic Fleet | Identify Fleet Server integrations on the owned parent policy
+          ansible.builtin.set_fact:
+            __elastic_fleet_server_package_policy_candidates: >-
+              {{ __elastic_fleet_final_resource.json.item.package_policies |
+                 selectattr('package', 'defined') |
+                 selectattr('package.name', 'equalto', 'fleet_server') | list }}
+
+        - name: Elastic Fleet | Require exactly one native Fleet Server integration before reuse
+          ansible.builtin.assert:
+            that: __elastic_fleet_server_package_policy_candidates | length == 1
+            fail_msg: The owned parent must have exactly one native Fleet Server integration; inspect its existing creation outcome before continuing.
+
+        - name: Elastic Fleet | Bind the one native Fleet Server integration
+          ansible.builtin.set_fact:
+            __elastic_fleet_server_package_policy: "{{ __elastic_fleet_server_package_policy_candidates[0] }}"
+
+        - name: Elastic Fleet | Validate ownership and version before changing the native integration
+          ansible.builtin.assert:
+            that:
+              - __elastic_fleet_server_package_policy.id is match('^[A-Za-z0-9_-]+$')
+              - __elastic_fleet_server_package_policy.name is string
+              - __elastic_fleet_server_package_policy.name | length > 0
+              - __elastic_fleet_server_package_policy.policy_ids == [elastic_fleet_agent_policy_id]
+              - __elastic_fleet_server_package_policy.package.version == elastic_fleet_server_package_version
+              - __elastic_fleet_server_package_policy.namespace in ['', elastic_fleet_namespace]
+              - not (__elastic_fleet_server_package_policy.is_preconfigured | default(false))
+              - not (__elastic_fleet_server_package_policy.is_managed | default(false))
+            fail_msg: The native Fleet Server integration must belong only to this parent, match the pinned version and use the native or configured namespace.
 
         - name: Elastic Fleet | Build the three minimal integration policies
           ansible.builtin.include_tasks: policies.yml

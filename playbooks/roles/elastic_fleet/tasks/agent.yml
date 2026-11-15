@@ -154,7 +154,7 @@
     elastic_fleet_result:
       agent_policy_id: "{{ elastic_fleet_agent_policy_id }}"
       package_policy_ids:
-        - elastic-demo-fleet-server-integration
+        - "{{ __elastic_fleet_server_package_policy.id }}"
         - elastic-demo-apm-integration
         - elastic-demo-system-integration
       expected_agent_ids: ["{{ __elastic_fleet_native_status.info.id }}"]

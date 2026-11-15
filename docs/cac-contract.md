@@ -1,122 +1,85 @@
 # CaC-to-AAP deployment contract
 
-Status: inspected proposal, not a completed import or restoration test. This
-contract does not select RPM/container installation, network exposure,
-certificate ownership or an Elastic-to-AAP event transport.
+Reuse AutoDeploy `deploy-cac-project.yml`, its existing metadata/resource schema
+and `infra.aap_configuration` 4.10.0/native Controller modules. There is no
+second importer implementation. Native bootstrap, successful configuration
+import, workload execution and functional acceptance are separate outcomes.
 
-## Reuse the existing importer
+## Approved isolated source
 
-Use AutoDeploy `deploy-cac-project.yml` with its existing metadata/resource
-schema and `infra.aap_configuration` 4.10.0/native Controller modules. Do not
-build a second importer. Earlier bounded research established no certified
-Elastic installer; it did not establish universal absence. AAP configuration
-reuse is independent of the eventual Elastic installation method.
+The exact project ID is `Ansible-Elastic-integrated-demo`. Published shared
+importer feature source `3f9788d2db2ac71522bd6b64fad213624ac9aa10` (0.64.1)
+registers this exact spelling while retaining unknown-ID, traversal, HTTPS and
+variable-root guards. The user selected an isolated native source Project for
+this existing implementation, preserving unrelated shared Project source pins.
+Do not advance another project's source or enable branch overrides as a shortcut.
 
-Inspected current shared source: `f6ecd8e8fc55eb79c274e9caabde3767d6044b3b`,
-verified by SSH remote readback on 2026-11-15. The relevant importer/resource
-files are unchanged from inspected checkout
-`cf550e617439a13a50ca7da62bdf53adede39a82`. Review-policy source:
-`e45b49b0de5231fbb580d828f2247161a7787863`.
+The importer derives the protected HTTPS owner namespace and
+`Ansible-Elastic-integrated-demo-secrets.git`, then loads exactly
+`vaults/cac/Ansible-Elastic-integrated-demo-cac-vault.yml`. Fix
+`aap_cac_project_id` to the case-sensitive ID; do not introduce repository/file
+overrides. Catalog/selector exposure, a new umbrella submodule and additional
+bootstrap framework are not part of this isolated activation.
 
-The exact user-selected project ID is `Ansible-Elastic-integrated-demo`.
-Once reviewed and registered, the current derivation gives the protected HTTPS
-owner namespace plus `/Ansible-Elastic-integrated-demo-secrets.git`, and capture
-`vaults/cac/Ansible-Elastic-integrated-demo-cac-vault.yml`. The importer template
-fixes `aap_cac_project_id` to that exact ID. Do not silently lowercase it or pass
-repository/file overrides.
+Represent the isolated source Project, **Deploy Ansible Elastic Integrated Demo
+CaC** template and project-specific Git-read/Vault credential instances in the
+existing owning AutoDeploy configuration before native creation. Reuse existing
+credential types, selected-instance API token-store/trust and external Vault
+sources. The CaC Vault instance uses the named `cac` identity. No hypervisor
+Machine credential belongs on this API-only importer.
 
-## Required additive shared changes
+The source registration is published; isolated activation, complete import,
+independent readback and repeat restoration remain unqualified at this source
+checkpoint. Never infer them from a prepared capture or successful source sync.
 
-Current source deliberately rejects the new ID. Before claiming shared import:
+## Application capture and runtime
 
-1. Add its exact spelling to `filter_plugins/cac_import.py:PROJECT_IDS` and an
-   exact-case test; retain unknown-ID, traversal, HTTPS and variable-root guards.
-2. For catalog/selector exposure, add `vars/use-case-catalog.yml` and an exact
-   reviewed display case in `filter_plugins/use_case_setup.py:project_display_name`.
-   The latter currently permits lowercase IDs and one separate RHEL exception.
-   Deliberately register the associated umbrella module; do not invent a
-   submodule or weaken equality checks to make selection pass.
-3. Add its independently named Git-read/Vault pair in protected AutoDeploy CaC.
-   Fresh-platform bootstrap also needs optional name/pair handling in
-   `tasks/bootstrap-credentials.yml`, examples and tests. Its current fixed map
-   does not recognize a new optional key.
-4. Capture **Deploy Ansible Elastic Integrated Demo CaC** in the existing
-   AutoDeploy configuration owner, referencing the shared importer Project,
-   fixed project ID, project-specific Git/Vault credentials and the existing
-   selected-instance token-store/trust path.
+Keep every target value and raw native result in the private companion as
+whole-file Ansible Vault ciphertext. Keys remain outside both repositories.
+Reusable playbooks, generic examples and tests remain public. Preserve original
+base-VM artifacts and separately record later growth and current accepted state.
 
-These changes are not implemented by this document. Rebase any patch on then-
-current source, preserve other work, update version/docs/history, and qualify
-its affected contracts before publication.
+The owned application capture represents one immutable public SCM Project, one
+label, the maintenance/deployment/verification templates, the original VM-only
+file credential and a separate application file credential. Resolve existing
+organization, inventory, shared EE, Machine and runtime Vault by verified names;
+do not recreate shared objects. The application credential reuses the existing
+encrypted-file injector `generic_linux_vm_config_file`; do not change that type
+or the original VM-only payload.
 
-## Bootstrap, import and execution are separate
+The encrypted application mapping contains target provenance and provisioning,
+exact package version, internal API URLs, durable credentials/keys and the
+single approved UI route. Generate secrets once. Capture the actual public CA,
+Agent identity and selected telemetry expectations after deployment into that
+same protected mapping without rotating existing secrets. Save deployment and
+growth authorization as false; only an authorized workload launch supplies true.
 
-The first maintenance entrypoint is `playbooks/grow_vm_disk.yml`. Its native
-Controller definition is an application Job Template, not the CaC importer.
-Represent its Project, template, label and protected bindings in the private
-companion first, together with the owning AutoDeploy bootstrap definition.
-Parent may then create only those reviewed native definitions through supported
-AAP interfaces, sync/verify exact public source, and separately launch the
-user-authorized maintenance job. This introduces no temporary second importer.
+The full deployment template uses its separately reviewed Machine/runtime/file
+bindings. The standalone verifier needs the runtime Vault and application file
+credential, without a Machine credential. Pin the exact tested source revision;
+a moving branch name is not immutable execution evidence.
 
-That initial bootstrap does not prove ordinary shared import support. Normal
-shared import still requires registration above plus actual import/readback and
-repeat-apply acceptance.
+Metadata keys are `schema_version`, `project_id`, `required_template_label`,
+`resource_variables`, `checks`, and `capabilities`. Map only owned resource lists;
+ordinary Controller deployment uses `capabilities: {}`. No EDA access, service
+user or public-trust lifecycle is implicitly required. An event-to-AAP trigger
+transport remains a separate unselected design.
 
-For maintenance, reuse the existing hypervisor Machine credential, runtime
-Vault credential and VM-only encrypted-file credential. Its existing type
-injects `generic_linux_vm_config_file`, whose file holds the protected
-provisioning mapping. The final maintenance contract separately binds the exact
-current guest provenance and resize request; never substitute another guest's
-identity or stale source-image defaults.
+## Acceptance
 
-Do not attach a hypervisor Machine to this project's generic CaC importer: it
-is API-only. The existing selector permits a route Machine only for its reviewed
-Orchestrator importer. Maintenance and deployment templates have their own
-independently reviewed execution credentials.
+Qualify the actual immutable shared EE, including Core, Python, collections,
+registry credential and image digest. Reuse the established runtime where
+supported; no new EE or dependency installation follows from this document.
 
-## Resource and credential boundaries
+Before claiming CaC restoration, run the existing importer, independently read
+back the intended resources and repeat apply while preserving unrelated objects.
+Imports execute no application workload, create no schedule and delete nothing.
+Perform authorized software deployment separately, then run the maintained
+[functional tests](functional-verification.md). They cover actual index
+write/search/cleanup, trusted public UI, Fleet/APM and recent telemetry; source
+sync and service health alone do not establish those outcomes.
 
-The [shape example](../examples/cac-contract.yml.example) is intentionally not
-import-ready: readiness is false and review items remain. Populate and encrypt
-the complete capture in the private companion. Vault passwords remain outside
-both repositories; this example selects no credential source.
-
-Initial maintenance owns one public SCM Project, one label, one template and
-its VM-file credential definition. Resolve existing organization, inventory,
-shared EE, credential type, Machine and runtime Vault by verified names. Do not
-re-create shared objects. Pin the source revision; `main` is not a tested release.
-
-After installation/access choices are answered, add the actual deployment and
-functional-test templates plus their scoped inventory/host/group and runtime
-credential definitions to the same capture. A native credential has `name`,
-`organization`, `credential_type`, `inputs`; any Machine `username` belongs only
-inside protected inputs. Do not invent guest accounts or edit shared credentials.
-
-Metadata has exactly `schema_version`, `project_id`, `required_template_label`,
-`resource_variables`, `checks`, `capabilities`. Map owned resource lists only.
-Basic Controller deployment needs no lifecycle capability: `capabilities: {}`.
-Do not request EDA access, service users or public-trust lifecycle merely because
-the schema supports them. The eventual event-to-AAP path remains a separate
-pending design choice.
-
-## Runtime and acceptance
-
-Reuse the qualified shared EE where its installed content supports the final
-playbooks. The importer resolves receiver-owned `ee-proj-aap-cac` and validates
-its immutable local-Hub image/verified registry credential. Inspect actual
-core/Python/collections/digest; an EE name or old documentation version is not
-runtime proof. No new EE, downgrade or dependency framework is selected here.
-
-Before calling this project CaCable, demonstrate shared import, repeat apply,
-and readback of exact source/target resources while preserving unrelated
-objects. Imports must execute no workload, create no schedule, delete nothing
-and leave new EDA definitions disabled. Run authorized deployment and maintained
-functional tests separately; verify actual ingestion/search, UI, Fleet/APM and
-selected integration outcomes. Source sync/import alone proves none of these.
-
-The local AAP 2.7 Develop guide, printed pages 43–50, supplies the relevant SCM
-→ Project → Job Template → execution sequence. This existing importer adds its
-protected repository/instance/resource guards. Full native schema/runtime
-qualification, new-project import/repeat apply and Elastic functional acceptance
-remain unperformed at this contract stage.
+The local AAP 2.7 Develop guide, printed pages 43–50, supplies the SCM → Project
+→ Job Template → execution sequence. The existing importer adds its protected
+repository, instance and resource guards. Review-policy reference inspected
+during preparation: `e45b49b0de5231fbb580d828f2247161a7787863`.
