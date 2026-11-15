@@ -1,0 +1,436 @@
+---
+- name: Require one explicit hypervisor before any maintenance play
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+  no_log: true
+  any_errors_fatal: true
+  tags: [always]
+  tasks:
+    - name: Refuse empty or ambiguous hypervisor selection
+      ansible.builtin.assert:
+        that:
+          - query('ansible.builtin.inventory_hostnames', 'hypervisor') | length == 1
+          - ansible_run_tags == ['all']
+          - ansible_skip_tags | length == 0
+        fail_msg: Select exactly one existing hypervisor and run the complete maintenance playbook.
+        quiet: true
+
+- name: Grow only the explicitly authorized existing demo VM
+  hosts: hypervisor
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  no_log: true
+  vars:
+    elastic_vm_growth_helper_sha256: af4886f15b7437b21ee94f9ecf70be2635f6576e1cd747b0d49acdd4a161b861
+  tasks:
+    - name: Require one complete explicitly authorized maintenance request
+      ansible.builtin.assert:
+        that:
+          - ansible_play_hosts_all | length == 1
+          - ansible_run_tags == ['all']
+          - ansible_skip_tags | length == 0
+          - not ansible_check_mode
+          - elastic_vm_growth_authorized | default(false) is sameas true
+          - elastic_vm_disk_target_gib is integer
+          - elastic_vm_disk_target_gib == 20
+          - elastic_vm_expected is mapping
+          - elastic_vm_expected.vm_name is match('^[a-z][a-z0-9-]{0,62}$')
+          - elastic_vm_expected.vm_name != inventory_hostname
+          - elastic_vm_expected.uuid is match('^[0-9a-f-]{36}$')
+          - elastic_vm_expected.machine_id is match('^[0-9a-f]{32}$')
+          - elastic_vm_expected.disk is match('^/[A-Za-z0-9_./-]+$')
+          - elastic_vm_expected.host_keys | length == 3
+          - generic_linux_vm_config_file is defined
+          - generic_linux_vm_config_file is abs
+        fail_msg: Supply the exact protected VM provenance and explicit authorization for a complete twenty-GiB growth run.
+        quiet: true
+
+    - name: Load only the existing credential-mounted VM configuration
+      ansible.builtin.include_vars:
+        file: "{{ generic_linux_vm_config_file }}"
+        name: __elastic_growth_configuration
+
+    - name: Bind the protected existing provisioning route
+      ansible.builtin.set_fact:
+        __elastic_growth_route: "{{ __elastic_growth_configuration.provisioning }}"
+
+    - name: Require the saved hypervisor route and exact owned destination
+      ansible.builtin.assert:
+        that:
+          - ansible_host == __elastic_growth_route.hypervisor_pin.address
+          - __elastic_growth_route.hypervisor_pin.user != 'root'
+          - elastic_vm_expected.hypervisor_machine_id == __elastic_growth_route.hypervisor_pin.machine_id
+          - elastic_vm_expected.source_image_sha256 == __elastic_growth_route.source_image_sha256
+          - elastic_vm_expected.disk == __elastic_growth_route.vm_dir ~ '/' ~ elastic_vm_expected.vm_name ~ '.disk.qcow2'
+          - elastic_vm_expected.address != __elastic_growth_route.hypervisor_pin.address
+        quiet: true
+
+    - name: Allocate private controller-side public-host-key trust
+      ansible.builtin.tempfile:
+        state: file
+        prefix: elastic-disk-growth-trust-
+      delegate_to: localhost
+      become: false
+      register: __elastic_growth_trust
+
+    - name: Execute exact owner checks and authorized maintenance
+      block:
+        - name: Pin the hypervisor and the existing guest without changing native trust
+          ansible.builtin.copy:
+            dest: "{{ __elastic_growth_trust.path }}"
+            mode: '0600'
+            content: |
+              {% for key in __elastic_growth_route.hypervisor_pin.host_keys %}
+              {{ __elastic_growth_route.hypervisor_pin.address }} {{ key }}
+              [{{ __elastic_growth_route.hypervisor_pin.address }}]:{{ __elastic_growth_route.hypervisor_pin.port }} {{ key }}
+              {% endfor %}
+              {% for key in elastic_vm_expected.host_keys %}
+              {{ elastic_vm_expected.vm_name }} {{ key }}
+              {% endfor %}
+          delegate_to: localhost
+          become: false
+
+        - name: Retain the existing pinned managed hypervisor account
+          ansible.builtin.set_fact:
+            ansible_user: "{{ __elastic_growth_route.hypervisor_pin.user }}"
+            ansible_port: "{{ __elastic_growth_route.hypervisor_pin.port }}"
+            ansible_password: ''
+            ansible_become_password: ''
+            ansible_host_key_checking: true
+            ansible_ssh_host_key_checking: true
+            ansible_ssh_common_args: >-
+              -o StrictHostKeyChecking=yes -o UserKnownHostsFile={{ __elastic_growth_trust.path | quote }}
+
+        # Same SSH-agent proxy contract as the shared creator; no private-key path is guessed.
+        # Justification: ../README.md#supporting-tools
+        - name: Bind existing guest access through both pinned SSH hops
+          ansible.builtin.add_host:
+            name: "{{ elastic_vm_expected.vm_name }}"
+            ansible_host: "{{ elastic_vm_expected.address }}"
+            ansible_user: "{{ __elastic_growth_route.guest_ssh_user }}"
+            ansible_password: "{{ __elastic_growth_route.guest_ssh_password }}"
+            ansible_become: true
+            ansible_become_user: root
+            ansible_become_password: "{{ __elastic_growth_route.guest_become_password }}"
+            ansible_host_key_checking: true
+            ansible_ssh_host_key_checking: true
+            ansible_ssh_common_args: >-
+              -o StrictHostKeyChecking=yes
+              -o UserKnownHostsFile={{ __elastic_growth_trust.path | quote }}
+              -o HostKeyAlias={{ elastic_vm_expected.vm_name | quote }}
+              -o ProxyCommand={{ ('ssh -o BatchMode=yes -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o UserKnownHostsFile=' ~ (__elastic_growth_trust.path | quote) ~ ' -p ' ~ (__elastic_growth_route.hypervisor_pin.port | string) ~ ' -W %h:%p ' ~ __elastic_growth_route.hypervisor_pin.user ~ '@' ~ __elastic_growth_route.hypervisor_pin.address) | quote }}
+
+        - name: Read the actual hypervisor machine identity
+          ansible.builtin.command:
+            argv: [cat, /etc/machine-id]
+          changed_when: false
+          register: __elastic_growth_hypervisor_mid
+
+        - name: Read the native VM identity
+          ansible.builtin.command:
+            argv: [virsh, -c, 'qemu:///system', domuuid, "{{ elastic_vm_expected.vm_name }}"]
+          changed_when: false
+          register: __elastic_growth_uuid
+
+        - name: Read the saved native public provenance
+          ansible.builtin.command:
+            argv: [virsh, -c, 'qemu:///system', desc, "{{ elastic_vm_expected.uuid }}", --config]
+          changed_when: false
+          register: __elastic_growth_description
+
+        - name: Require exact native VM and source provenance
+          ansible.builtin.assert:
+            that:
+              - __elastic_growth_hypervisor_mid.stdout | trim == elastic_vm_expected.hypervisor_machine_id
+              - __elastic_growth_uuid.stdout | trim == elastic_vm_expected.uuid
+              - (__elastic_growth_description.stdout | from_json).uuid == elastic_vm_expected.uuid
+              - (__elastic_growth_description.stdout | from_json).vm_name == elastic_vm_expected.vm_name
+              - (__elastic_growth_description.stdout | from_json).hypervisor_machine_id == elastic_vm_expected.hypervisor_machine_id
+              - (__elastic_growth_description.stdout | from_json).source_image_sha256 == elastic_vm_expected.source_image_sha256
+              - (__elastic_growth_description.stdout | from_json).host_keys | sort == elastic_vm_expected.host_keys | sort
+            quiet: true
+
+        - name: Record all persistent VM identities before maintenance
+          ansible.builtin.command:
+            argv: [virsh, -c, 'qemu:///system', list, --all, --uuid]
+          changed_when: false
+          register: __elastic_growth_domains_before
+
+        - name: Record all persistent VM states before maintenance
+          ansible.builtin.command:
+            argv: [virsh, -c, 'qemu:///system', domstats, --list-persistent, --state]
+          changed_when: false
+          register: __elastic_growth_states_before
+
+        - name: Read every persistent disk reference before selecting the owned disk
+          ansible.builtin.command:
+            argv: [virsh, -c, 'qemu:///system', domblklist, "{{ item }}", --details, --inactive]
+          loop: "{{ __elastic_growth_domains_before.stdout_lines | reject('equalto', '') | list }}"
+          changed_when: false
+          register: __elastic_growth_disk_references
+
+        - name: Refuse references to the selected disk from any other domain
+          ansible.builtin.assert:
+            that:
+              - elastic_vm_expected.disk not in item.stdout.split()
+            quiet: true
+          loop: "{{ __elastic_growth_disk_references.results }}"
+          when: item.item != elastic_vm_expected.uuid
+
+        - name: Bind only the native vda reference of the selected existing VM
+          ansible.builtin.set_fact:
+            __elastic_growth_target_references: "{{ (__elastic_growth_disk_references.results | selectattr('item', 'equalto', elastic_vm_expected.uuid) | first).stdout }}"
+
+        - name: Require one writable vda disk at the exact owned path
+          ansible.builtin.assert:
+            that:
+              - (__elastic_growth_target_references | regex_findall('(?m)^ *file +disk +vda +(/[A-Za-z0-9_./-]+) *$')) == [elastic_vm_expected.disk]
+              - (__elastic_growth_target_references | regex_findall('(?m)^ *[^ ]+ +disk +')) | length == 1
+            quiet: true
+
+        - name: Read the existing native disk allocation
+          ansible.builtin.command:
+            argv: [virsh, -c, 'qemu:///system', domblkinfo, "{{ elastic_vm_expected.uuid }}", vda]
+          changed_when: false
+          register: __elastic_growth_block_before
+
+        - name: Record the exact regular destination inode before shutdown
+          ansible.builtin.stat:
+            path: "{{ elastic_vm_expected.disk }}"
+            follow: false
+          register: __elastic_growth_disk_before
+
+        - name: Hash the original source image without following a symlink
+          ansible.builtin.stat:
+            path: "{{ __elastic_growth_route.golden_image_path }}"
+            follow: false
+            checksum_algorithm: sha256
+          register: __elastic_growth_source_before
+
+        - name: Read the actual guest machine identity through strict pinned access
+          ansible.builtin.command:
+            argv: [cat, /etc/machine-id]
+          delegate_to: "{{ elastic_vm_expected.vm_name }}"
+          changed_when: false
+          register: __elastic_growth_guest_mid
+
+        - name: Inspect the already-installed GPT and XFS growth helper
+          ansible.builtin.stat:
+            path: /var/lib/generic-linux-vm-grow-root.py
+            follow: false
+            checksum_algorithm: sha256
+          delegate_to: "{{ elastic_vm_expected.vm_name }}"
+          register: __elastic_growth_helper
+
+        - name: Read the existing root filesystem identity
+          ansible.builtin.command:
+            argv: [findmnt, -n, -o, 'SOURCE,FSTYPE,UUID', /]
+          delegate_to: "{{ elastic_vm_expected.vm_name }}"
+          changed_when: false
+          register: __elastic_growth_root_before
+
+        - name: Bind the observed current capacity
+          ansible.builtin.set_fact:
+            __elastic_growth_capacity_before: >-
+              {{ __elastic_growth_block_before.stdout | regex_findall('(?m)^Capacity: +([0-9]+)') | first | int }}
+
+        - name: Require exact ownership and the previously inspected growth implementation
+          ansible.builtin.assert:
+            that:
+              - __elastic_growth_disk_before.stat.isreg | default(false)
+              - not (__elastic_growth_disk_before.stat.islnk | default(false))
+              - __elastic_growth_source_before.stat.isreg | default(false)
+              - not (__elastic_growth_source_before.stat.islnk | default(false))
+              - __elastic_growth_source_before.stat.checksum == elastic_vm_expected.source_image_sha256
+              - __elastic_growth_guest_mid.stdout | trim == elastic_vm_expected.machine_id
+              - __elastic_growth_helper.stat.isreg | default(false)
+              - not (__elastic_growth_helper.stat.islnk | default(false))
+              - __elastic_growth_helper.stat.uid == 0
+              - __elastic_growth_helper.stat.mode == '0700'
+              - __elastic_growth_helper.stat.checksum == elastic_vm_growth_helper_sha256
+              - __elastic_growth_root_before.stdout is match('^/dev/vda4 +xfs +[0-9a-f-]+$')
+              - __elastic_growth_capacity_before | int in [10737418240, 21474836480]
+            quiet: true
+
+        - name: Read the selected domain state before any shutdown
+          ansible.builtin.command:
+            argv: [virsh, -c, 'qemu:///system', domstate, "{{ elastic_vm_expected.uuid }}"]
+          changed_when: false
+          register: __elastic_growth_state_before
+
+        - name: Require the selected guest to be running before maintenance
+          ansible.builtin.assert:
+            that: __elastic_growth_state_before.stdout | trim == 'running'
+            quiet: true
+
+        # Existing native tools handle offline QCOW2 growth; the installed shared helper
+        # supplies GPT/XFS preservation. No new VM-management dependency is introduced.
+        # Justification: ../README.md#supporting-tools
+        - name: Grow only the exact offline owned image when its capacity is smaller
+          when: __elastic_growth_capacity_before | int < elastic_vm_disk_target_gib * 1073741824
+          block:
+            - name: Request graceful shutdown of only the selected domain UUID
+              ansible.builtin.command:
+                argv: [virsh, -c, 'qemu:///system', shutdown, "{{ elastic_vm_expected.uuid }}"]
+              changed_when: true
+
+            - name: Wait for the selected domain to become fully shut off
+              ansible.builtin.command:
+                argv: [virsh, -c, 'qemu:///system', domstate, "{{ elastic_vm_expected.uuid }}"]
+              register: __elastic_growth_shutdown
+              changed_when: false
+              until: __elastic_growth_shutdown.stdout | trim == 'shut off'
+              retries: 24
+              delay: 5
+
+            - name: Verify the offline disk is a standalone QCOW2 image
+              ansible.builtin.command:
+                argv: [qemu-img, info, --output=json, "{{ elastic_vm_expected.disk }}"]
+              changed_when: false
+              register: __elastic_growth_offline_image
+
+            - name: Require the exact original offline image capacity and format
+              ansible.builtin.assert:
+                that:
+                  - (__elastic_growth_offline_image.stdout | from_json).format == 'qcow2'
+                  - (__elastic_growth_offline_image.stdout | from_json)['virtual-size'] == __elastic_growth_capacity_before | int
+                  - "'backing-filename' not in (__elastic_growth_offline_image.stdout | from_json)"
+                quiet: true
+
+            - name: Grow only the authorized regular disk to the explicit total capacity
+              ansible.builtin.command:
+                argv: [qemu-img, resize, "{{ elastic_vm_expected.disk }}", "{{ elastic_vm_disk_target_gib }}G"]
+              changed_when: true
+
+            - name: Start only the same selected domain UUID
+              ansible.builtin.command:
+                argv: [virsh, -c, 'qemu:///system', start, "{{ elastic_vm_expected.uuid }}"]
+              changed_when: true
+
+          rescue:
+            - name: Read the selected UUID state after an exceptional maintenance failure
+              ansible.builtin.command:
+                argv: [virsh, -c, 'qemu:///system', domstate, "{{ elastic_vm_expected.uuid }}"]
+              changed_when: false
+              failed_when: false
+              register: __elastic_growth_failure_state
+
+            - name: Preserve the failure and require exact-state inspection before recovery
+              ansible.builtin.fail:
+                msg: >-
+                  Authorized disk maintenance failed. The selected domain reports
+                  {{ __elastic_growth_failure_state.stdout | default('state unavailable', true) | trim }}.
+                  Inspect the exact owned image and native error before a restart or retry;
+                  no forced shutdown, automatic repeat or success claim was performed.
+
+        - name: Wait for the existing guest through both strict pinned SSH hops
+          ansible.builtin.wait_for_connection:
+            timeout: 180
+          delegate_to: "{{ elastic_vm_expected.vm_name }}"
+
+        - name: Recheck the guest identity before partition or filesystem changes
+          ansible.builtin.command:
+            argv: [cat, /etc/machine-id]
+          delegate_to: "{{ elastic_vm_expected.vm_name }}"
+          changed_when: false
+          register: __elastic_growth_guest_mid_after
+
+        - name: Require the same guest after restart
+          ansible.builtin.assert:
+            that: __elastic_growth_guest_mid_after.stdout | trim == elastic_vm_expected.machine_id
+            quiet: true
+
+        # The hash-verified shared helper preserves the last GPT partition's start/type/UUID,
+        # writes a private table backup, runs growpart, and then xfs_growfs.
+        # Justification: ../README.md#supporting-tools
+        - name: Extend the existing final root partition and its XFS filesystem
+          ansible.builtin.command:
+            argv: [python3, /var/lib/generic-linux-vm-grow-root.py]
+          delegate_to: "{{ elastic_vm_expected.vm_name }}"
+          register: __elastic_growth_filesystem
+          changed_when: (__elastic_growth_filesystem.stdout | from_json).changed
+
+        - name: Read the final native disk allocation
+          ansible.builtin.command:
+            argv: [virsh, -c, 'qemu:///system', domblkinfo, "{{ elastic_vm_expected.uuid }}", vda]
+          changed_when: false
+          register: __elastic_growth_block_after
+
+        - name: Read the final disk inode
+          ansible.builtin.stat:
+            path: "{{ elastic_vm_expected.disk }}"
+            follow: false
+          register: __elastic_growth_disk_after
+
+        - name: Read the final root filesystem identity
+          ansible.builtin.command:
+            argv: [findmnt, -n, -o, 'SOURCE,FSTYPE,UUID', /]
+          delegate_to: "{{ elastic_vm_expected.vm_name }}"
+          changed_when: false
+          register: __elastic_growth_root_after
+
+        - name: Record all persistent VM identities after maintenance
+          ansible.builtin.command:
+            argv: [virsh, -c, 'qemu:///system', list, --all, --uuid]
+          changed_when: false
+          register: __elastic_growth_domains_after
+
+        - name: Record all persistent VM states after maintenance
+          ansible.builtin.command:
+            argv: [virsh, -c, 'qemu:///system', domstats, --list-persistent, --state]
+          changed_when: false
+          register: __elastic_growth_states_after
+
+        - name: Hash the original source image after maintenance
+          ansible.builtin.stat:
+            path: "{{ __elastic_growth_route.golden_image_path }}"
+            follow: false
+            checksum_algorithm: sha256
+          register: __elastic_growth_source_after
+
+        - name: Parse paired native domain names and states for preservation checks
+          ansible.builtin.set_fact:
+            __elastic_growth_state_pairs_before: >-
+              {{ __elastic_growth_states_before.stdout | regex_findall("(?ms)Domain: '([^']+)'\\s+state.state=([0-9]+)") }}
+            __elastic_growth_state_pairs_after: >-
+              {{ __elastic_growth_states_after.stdout | regex_findall("(?ms)Domain: '([^']+)'\\s+state.state=([0-9]+)") }}
+
+        - name: Verify the authorized capacity and preservation outcome
+          ansible.builtin.assert:
+            that:
+              - (__elastic_growth_block_after.stdout | regex_findall('(?m)^Capacity: +([0-9]+)') | first | int) == elastic_vm_disk_target_gib * 1073741824
+              - __elastic_growth_disk_after.stat.inode == __elastic_growth_disk_before.stat.inode
+              - __elastic_growth_disk_after.stat.dev == __elastic_growth_disk_before.stat.dev
+              - __elastic_growth_root_after.stdout == __elastic_growth_root_before.stdout
+              - (__elastic_growth_filesystem.stdout | from_json).filesystem_bytes > 18 * 1073741824
+              - __elastic_growth_domains_after.stdout_lines | sort == __elastic_growth_domains_before.stdout_lines | sort
+              - __elastic_growth_state_pairs_before | length == (__elastic_growth_domains_before.stdout_lines | reject('equalto', '') | list | length)
+              - __elastic_growth_state_pairs_after | length == __elastic_growth_state_pairs_before | length
+              - __elastic_growth_state_pairs_after | sort == __elastic_growth_state_pairs_before | sort
+              - __elastic_growth_source_after.stat.checksum == __elastic_growth_source_before.stat.checksum
+            quiet: true
+
+        - name: Publish the verified disk growth outcome without credentials
+          ansible.builtin.set_stats:
+            data:
+              elastic_vm_disk_growth:
+                verified: true
+                vm_name: "{{ elastic_vm_expected.vm_name }}"
+                uuid: "{{ elastic_vm_expected.uuid }}"
+                source_image_sha256: "{{ __elastic_growth_source_after.stat.checksum }}"
+                before_disk_bytes: "{{ __elastic_growth_capacity_before }}"
+                after_disk_bytes: "{{ elastic_vm_disk_target_gib * 1073741824 }}"
+                root_identity_preserved: true
+                other_vm_identities_and_states_preserved: true
+                filesystem: "{{ __elastic_growth_filesystem.stdout | from_json }}"
+            per_host: false
+      always:
+        - name: Remove only this run's private public-key trust file
+          ansible.builtin.file:
+            path: "{{ __elastic_growth_trust.path }}"
+            state: absent
+          delegate_to: localhost
+          become: false

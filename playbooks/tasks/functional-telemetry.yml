@@ -1,0 +1,23 @@
+---
+- name: Require recent indexed data from the selected integration and agent
+  ansible.builtin.uri:
+    url: "{{ __elastic_demo_es_url }}/{{ __elastic_demo_sample.index }}/_search?ignore_unavailable=true&allow_no_indices=true"
+    method: POST
+    body_format: json
+    body:
+      size: 0
+      query:
+        bool:
+          filter:
+            - term:
+                agent.id: "{{ __elastic_demo_sample.agent_id }}"
+            - term:
+                data_stream.dataset: "{{ __elastic_demo_sample.dataset }}"
+            - range:
+                '@timestamp':
+                  gte: now-5m
+    status_code: 200
+  register: __elastic_demo_telemetry
+  until: (__elastic_demo_telemetry.json.hits.total.value | default(0) | int) > 0
+  retries: 12
+  delay: 5

@@ -1,0 +1,171 @@
+---
+- name: Require a responding non-red Elasticsearch cluster
+  ansible.builtin.uri:
+    url: "{{ __elastic_demo_es_url }}/_cluster/health"
+    status_code: 200
+  register: __elastic_demo_cluster
+  failed_when: >-
+    (__elastic_demo_cluster.status | default(0)) != 200 or
+    (__elastic_demo_cluster.json.status | default('red')) == 'red'
+
+- name: Require Kibana's overall service status to be available
+  ansible.builtin.uri:
+    url: "{{ __elastic_demo_kibana_url }}/api/status"
+    status_code: 200
+  register: __elastic_demo_kibana
+  failed_when: >-
+    (__elastic_demo_kibana.status | default(0)) != 200 or
+    (__elastic_demo_kibana.json.status.overall.level | default('unavailable')) != 'available'
+
+- name: Read each explicitly selected Fleet agent
+  ansible.builtin.uri:
+    url: "{{ __elastic_demo_kibana_url }}/api/fleet/agents/{{ item }}"
+    headers:
+      kbn-xsrf: elastic-demo-functional
+    status_code: 200
+  loop: "{{ __elastic_demo.expected_agent_ids }}"
+  register: __elastic_demo_agents
+
+- name: Require every selected Fleet agent to be active and online
+  ansible.builtin.assert:
+    that:
+      - item.json.item.id == item.item
+      - item.json.item.active is true
+      - item.json.item.status == 'online'
+  loop: "{{ __elastic_demo_agents.results }}"
+
+- name: Select the declared Fleet Server agent's component report
+  ansible.builtin.set_fact:
+    __elastic_demo_fleet_components: >-
+      {{ (__elastic_demo_agents.results |
+           selectattr('item', 'equalto', __elastic_demo.fleet_server_agent_id) |
+           first).json.item.components | selectattr('type', 'equalto', 'fleet-server') | list }}
+
+- name: Require an actual healthy Fleet Server component
+  ansible.builtin.assert:
+    that:
+      - __elastic_demo_fleet_components | length > 0
+      - >-
+        (__elastic_demo_fleet_components | map(attribute='status') | map('lower') |
+         unique | list) == ['healthy']
+
+- name: Create a unique test-owned index with one shard and no replica
+  ansible.builtin.uri:
+    url: "{{ __elastic_demo_es_url }}/{{ __elastic_demo_test_index }}"
+    method: PUT
+    body_format: json
+    body:
+      settings:
+        number_of_shards: 1
+        number_of_replicas: 0
+      mappings:
+        properties:
+          verification_nonce:
+            type: keyword
+    status_code: 200
+  register: __elastic_demo_created_index
+  changed_when: true
+
+- name: Record ownership before asserting the index creation acknowledgement
+  ansible.builtin.set_fact:
+    __elastic_demo_test_index_created: true
+
+- name: Require the test index to have been acknowledged
+  ansible.builtin.assert:
+    that: __elastic_demo_created_index.json.acknowledged is true
+
+- name: Index one uniquely marked document and wait for search visibility
+  ansible.builtin.uri:
+    url: "{{ __elastic_demo_es_url }}/{{ __elastic_demo_test_index }}/_doc/probe?refresh=wait_for"
+    method: PUT
+    body_format: json
+    body:
+      verification_nonce: "{{ __elastic_demo_trace_id }}"
+    status_code: 201
+  changed_when: true
+
+- name: Search the test index for the exact marker
+  ansible.builtin.uri:
+    url: "{{ __elastic_demo_es_url }}/{{ __elastic_demo_test_index }}/_search"
+    method: POST
+    body_format: json
+    body:
+      size: 1
+      query:
+        term:
+          verification_nonce: "{{ __elastic_demo_trace_id }}"
+    status_code: 200
+  register: __elastic_demo_search
+
+- name: Require the indexed document and its exact content
+  ansible.builtin.assert:
+    that:
+      - __elastic_demo_search.json.hits.total.value == 1
+      - __elastic_demo_search.json.hits.hits[0]._id == 'probe'
+      - __elastic_demo_search.json.hits.hits[0]._source.verification_nonce == __elastic_demo_trace_id
+
+- name: Construct a minimal uniquely owned APM test transaction
+  ansible.builtin.set_fact:
+    __elastic_demo_apm_metadata:
+      metadata:
+        service:
+          name: elastic-demo-functional
+          agent:
+            name: elastic-demo-functional-probe
+            version: '0.0.1'
+          language:
+            name: synthetic
+    __elastic_demo_apm_transaction:
+      transaction:
+        id: "{{ __elastic_demo_transaction_id }}"
+        trace_id: "{{ __elastic_demo_trace_id }}"
+        name: elastic-demo-functional-probe
+        type: request
+        duration: 1.0
+        sampled: true
+        span_count:
+          started: 0
+
+- name: Send the test transaction through the actual APM intake endpoint
+  ansible.builtin.uri:
+    url: "{{ __elastic_demo_apm_url }}/intake/v2/events"
+    method: POST
+    url_username: ''
+    url_password: ''
+    force_basic_auth: false
+    headers:
+      Authorization: "Bearer {{ __elastic_demo.apm_secret_token }}"
+      Content-Type: application/x-ndjson
+    body: |
+      {{ __elastic_demo_apm_metadata | to_json }}
+      {{ __elastic_demo_apm_transaction | to_json }}
+    status_code: 202
+  changed_when: true
+
+- name: Wait for that exact transaction to become searchable
+  ansible.builtin.uri:
+    url: "{{ __elastic_demo_es_url }}/traces-apm*/_search?ignore_unavailable=true&allow_no_indices=true"
+    method: POST
+    body_format: json
+    body:
+      size: 1
+      query:
+        bool:
+          filter:
+            - term:
+                trace.id: "{{ __elastic_demo_trace_id }}"
+            - term:
+                service.name: elastic-demo-functional
+            - term:
+                transaction.id: "{{ __elastic_demo_transaction_id }}"
+    status_code: 200
+  register: __elastic_demo_apm_search
+  until: (__elastic_demo_apm_search.json.hits.total.value | default(0) | int) == 1
+  retries: 30
+  delay: 2
+
+- name: Require the stored APM event to retain this execution's trace identity
+  ansible.builtin.assert:
+    that:
+      - __elastic_demo_apm_search.json.hits.hits[0]._source.trace.id == __elastic_demo_trace_id
+      - __elastic_demo_apm_search.json.hits.hits[0]._source.service.name == 'elastic-demo-functional'

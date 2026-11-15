@@ -1,0 +1,90 @@
+---
+# SHAPE EXAMPLE ONLY: not import-ready; no real environment values.
+# Populate and encrypt the complete file in the private companion before use.
+cac_import_metadata:
+  schema_version: 1
+  project_id: Ansible-Elastic-integrated-demo
+  required_template_label: elastic-integrated-demo
+  resource_variables:
+    controller_labels: elastic_capture.labels
+    controller_credentials: elastic_capture.credentials
+    controller_projects: elastic_capture.projects
+    controller_templates: elastic_capture.job_templates
+  checks:
+    true_values:
+      - elastic_capture_review.ready_for_import
+    empty_lists:
+      - elastic_capture_review.review_items
+    required_secrets:
+      - elastic_runtime_vault_ciphertext
+    resource_counts:
+      controller_labels: 1
+      controller_credentials: 1
+      controller_projects: 1
+      controller_templates: 1
+  capabilities: {}
+
+elastic_capture_review:
+  ready_for_import: false
+  review_items:
+    - Register the exact project ID in the shared importer.
+    - Populate protected bindings and final maintenance input contract.
+    - Verify exact source, execution environment and credential types.
+    - Complete native import, readback and repeat-apply acceptance.
+
+elastic_bindings:
+  organization: ORGANIZATION_PLACEHOLDER
+  hypervisor_inventory: EXISTING_HYPERVISOR_INVENTORY_PLACEHOLDER
+  machine_credential: EXISTING_HYPERVISOR_MACHINE_CREDENTIAL_PLACEHOLDER
+  runtime_vault_credential: EXISTING_RUNTIME_VAULT_CREDENTIAL_PLACEHOLDER
+  vm_configuration_credential: VM_CONFIGURATION_CREDENTIAL_PLACEHOLDER
+  public_source_url: https://git.example.invalid/SOURCE_OWNER/Ansible-Elastic-integrated-demo.git
+  public_source_revision: VERIFIED_SOURCE_REVISION_PLACEHOLDER
+  shared_execution_environment: EXISTING_SHARED_EXECUTION_ENVIRONMENT_PLACEHOLDER
+
+# Replace only inside the encrypted capture with whole-file runtime ciphertext.
+elastic_runtime_vault_ciphertext: CHANGEME
+
+elastic_capture:
+  labels:
+    - name: elastic-integrated-demo
+      organization: "{{ elastic_bindings.organization }}"
+  credentials:
+    - name: "{{ elastic_bindings.vm_configuration_credential }}"
+      organization: "{{ elastic_bindings.organization }}"
+      credential_type: Generic Linux VM encrypted configuration
+      inputs:
+        configuration_vault: "{{ elastic_runtime_vault_ciphertext }}"
+  projects:
+    - name: Ansible-Elastic-integrated-demo
+      organization: "{{ elastic_bindings.organization }}"
+      scm_type: git
+      scm_url: "{{ elastic_bindings.public_source_url }}"
+      scm_branch: "{{ elastic_bindings.public_source_revision }}"
+      scm_update_on_launch: true
+      allow_override: false
+  job_templates:
+    - name: Elastic Demo - Grow VM Disk
+      organization: "{{ elastic_bindings.organization }}"
+      project: Ansible-Elastic-integrated-demo
+      playbook: playbooks/grow_vm_disk.yml
+      inventory: "{{ elastic_bindings.hypervisor_inventory }}"
+      execution_environment: "{{ elastic_bindings.shared_execution_environment }}"
+      credentials:
+        - "{{ elastic_bindings.machine_credential }}"
+        - "{{ elastic_bindings.runtime_vault_credential }}"
+        - "{{ elastic_bindings.vm_configuration_credential }}"
+      labels:
+        - elastic-integrated-demo
+      job_type: run
+      become_enabled: true
+      ask_variables_on_launch: true
+      ask_inventory_on_launch: false
+      ask_credential_on_launch: false
+      ask_tags_on_launch: false
+      ask_skip_tags_on_launch: false
+      job_tags: ''
+      skip_tags: ''
+      allow_simultaneous: false
+      # Parent fills only the final validated protected request/provenance.
+      extra_vars: {}

@@ -1,0 +1,186 @@
+---
+- name: Verify the deployed Elastic demo through supported HTTPS interfaces
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  no_log: true
+  tasks:
+    - name: Require an actual execution with a protected configuration file
+      ansible.builtin.assert:
+        that:
+          - not ansible_check_mode
+          - elastic_demo_config_file is defined
+          - elastic_demo_config_file is string
+          - elastic_demo_config_file is abs
+        fail_msg: Supply the encrypted configuration file and execute the complete verification playbook.
+
+    - name: Inspect the supplied configuration without following links
+      ansible.builtin.stat:
+        path: "{{ elastic_demo_config_file }}"
+        follow: false
+      register: __elastic_demo_config_stat
+
+    - name: Require a readable regular configuration file
+      ansible.builtin.assert:
+        that:
+          - __elastic_demo_config_stat.stat.isreg | default(false)
+          - not (__elastic_demo_config_stat.stat.islnk | default(false))
+          - __elastic_demo_config_stat.stat.readable | default(false)
+
+    - name: Load only the explicitly supplied protected configuration
+      ansible.builtin.include_vars:
+        file: "{{ elastic_demo_config_file }}"
+        name: __elastic_demo_configuration
+
+    - name: Bind the functional verification inputs
+      ansible.builtin.set_fact:
+        __elastic_demo: "{{ __elastic_demo_configuration.elastic_demo }}"
+        __elastic_demo_test_index_created: false
+        __elastic_demo_trace_id: >-
+          {{ lookup('ansible.builtin.password', '/dev/null', length=32, chars=['hexdigits']) | lower }}
+        __elastic_demo_transaction_id: >-
+          {{ lookup('ansible.builtin.password', '/dev/null', length=16, chars=['hexdigits']) | lower }}
+
+    - name: Require complete credentials and explicit telemetry expectations
+      ansible.builtin.assert:
+        that:
+          - __elastic_demo is mapping
+          - __elastic_demo.operator_username is string
+          - __elastic_demo.operator_username | length > 0
+          - __elastic_demo.operator_password is string
+          - __elastic_demo.operator_password | length > 0
+          - __elastic_demo.apm_secret_token is string
+          - __elastic_demo.apm_secret_token | length > 0
+          - __elastic_demo.tls_ca_pem is string
+          - "'-----BEGIN CERTIFICATE-----' in __elastic_demo.tls_ca_pem"
+          - __elastic_demo.expected_agent_ids is sequence
+          - __elastic_demo.expected_agent_ids is not string
+          - __elastic_demo.expected_agent_ids | length > 0
+          - __elastic_demo.fleet_server_agent_id in __elastic_demo.expected_agent_ids
+          - __elastic_demo.telemetry_checks is sequence
+          - __elastic_demo.telemetry_checks is not string
+          - __elastic_demo.telemetry_checks | length == 3
+          - >-
+            (__elastic_demo.telemetry_checks | map(attribute='kind') | sort | list) ==
+            ['logs', 'metrics', 'security']
+        fail_msg: Provide HTTPS credentials, the trusted CA, exact Fleet agents and one logs, metrics and security expectation.
+
+    - name: Require HTTPS service URLs without embedded credentials or query overrides
+      ansible.builtin.assert:
+        that:
+          - item is string
+          - (item | urlsplit('scheme')) == 'https'
+          - (item | urlsplit('hostname')) | length > 0
+          - (item | urlsplit('username')) is none
+          - (item | urlsplit('password')) is none
+          - (item | urlsplit('query')) == ''
+          - (item | urlsplit('fragment')) == ''
+      loop:
+        - "{{ __elastic_demo.elasticsearch_url }}"
+        - "{{ __elastic_demo.kibana_url }}"
+        - "{{ __elastic_demo.apm_url }}"
+
+    - name: Validate the exact Fleet identifiers used in URL paths
+      ansible.builtin.assert:
+        that: item is match('^[A-Za-z0-9_-]+$')
+      loop: "{{ __elastic_demo.expected_agent_ids }}"
+
+    - name: Validate bounded read-only telemetry searches
+      ansible.builtin.assert:
+        that:
+          - item.index is match('^(logs|metrics)-[a-z0-9_.-]+[*]?$')
+          - item.dataset is match('^[a-z0-9_.-]+$')
+          - item.agent_id in __elastic_demo.expected_agent_ids
+          - item.kind != 'metrics' or item.index is match('^metrics-')
+          - item.kind == 'metrics' or item.index is match('^logs-')
+      loop: "{{ __elastic_demo.telemetry_checks }}"
+
+    - name: Bind normalized service URLs and a unique owned test index
+      ansible.builtin.set_fact:
+        __elastic_demo_es_url: "{{ __elastic_demo.elasticsearch_url | regex_replace('/+$', '') }}"
+        __elastic_demo_kibana_url: "{{ __elastic_demo.kibana_url | regex_replace('/+$', '') }}"
+        __elastic_demo_apm_url: "{{ __elastic_demo.apm_url | regex_replace('/+$', '') }}"
+        __elastic_demo_test_index: "elastic-demo-functional-{{ __elastic_demo_trace_id }}"
+
+    - name: Publish only nonsecret test ownership identifiers before any API write
+      ansible.builtin.set_stats:
+        data:
+          elastic_demo_functional_context:
+            test_index: "{{ __elastic_demo_test_index }}"
+            trace_id: "{{ __elastic_demo_trace_id }}"
+            transaction_id: "{{ __elastic_demo_transaction_id }}"
+            service_name: elastic-demo-functional
+        per_host: false
+        aggregate: false
+
+    - name: Allocate temporary public CA trust for this execution only
+      ansible.builtin.tempfile:
+        state: file
+        prefix: elastic-demo-functional-ca-
+      register: __elastic_demo_ca_file
+
+    - name: Verify the declared deployment without changing its configuration
+      block:
+        - name: Write the supplied public CA to the private temporary file
+          ansible.builtin.copy:
+            content: "{{ __elastic_demo.tls_ca_pem }}"
+            dest: "{{ __elastic_demo_ca_file.path }}"
+            mode: '0600'
+
+        # No qualified certified replacement was established for these combined APIs.
+        # Rationale and scope: ../docs/functional-verification.md#api-selection
+        - name: Exercise the supported APIs with consistent TLS and authentication
+          module_defaults:
+            ansible.builtin.uri:
+              url_username: "{{ __elastic_demo.operator_username }}"
+              url_password: "{{ __elastic_demo.operator_password }}"
+              force_basic_auth: true
+              use_netrc: false
+              validate_certs: true
+              ca_path: "{{ __elastic_demo_ca_file.path }}"
+              follow_redirects: none
+              unredirected_headers: [Authorization]
+              return_content: true
+              timeout: 30
+          block:
+            - name: Run core API and ingestion checks
+              ansible.builtin.import_tasks: tasks/functional-api.yml
+
+            - name: Require representative data from each declared integration kind
+              ansible.builtin.include_tasks: tasks/functional-telemetry.yml
+              loop: "{{ __elastic_demo.telemetry_checks }}"
+              loop_control:
+                loop_var: __elastic_demo_sample
+
+          always:
+            - name: Delete only the unique index this execution successfully created
+              ansible.builtin.uri:
+                url: "{{ __elastic_demo_es_url }}/{{ __elastic_demo_test_index }}"
+                method: DELETE
+                status_code: [200, 404]
+              when: __elastic_demo_test_index_created
+              register: __elastic_demo_deleted_index
+              changed_when: __elastic_demo_deleted_index.status == 200
+      always:
+        - name: Remove only this execution's temporary public CA file
+          ansible.builtin.file:
+            path: "{{ __elastic_demo_ca_file.path }}"
+            state: absent
+
+    - name: Publish only the bounded verification result
+      ansible.builtin.set_stats:
+        data:
+          elastic_demo_functional:
+            passed: true
+            scope: Supported APIs, APM intake and configured recent agent telemetry
+            index_write_and_search: true
+            kibana_available: true
+            fleet_agents_online: true
+            fleet_server_healthy: true
+            apm_intake_and_search: true
+            telemetry_kinds: [logs, metrics, security]
+            instrumented_application: unverified
+            elastic_to_aap_trigger: unverified
+        per_host: false
+        aggregate: false
