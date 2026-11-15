@@ -29,14 +29,13 @@ VM history. It is preserved; it is not made public or silently overwritten.
 
 ## Entry points and implementation status
 
-- `playbooks/grow_vm_disk.yml`: implemented narrow maintenance entry point;
-  exact-owner checks and explicit growth authorization are required. Its
-  first run stopped at a tag guard; the corrected second run grew the disk and
-  restarted the VM, then failed at final assertion parsing. Native readback
-  confirms the VM running with a 20 GiB disk. Version 0.0.3 corrects that scalar;
-  independent native/guest checks confirm XFS growth and preservation. Version
-  0.0.4 fixes an escaped state-parser expression found by replaying actual native
-  output; full AAP acceptance of the corrected parser remains pending.
+- `playbooks/grow_vm_disk.yml`: implemented and accepted through normal AAP
+  execution. The authorized disk is now 20 GiB with grown XFS; strict independent
+  native/guest checks confirm identities, partitions, source image and all other
+  VM states/definitions preserved. The final run accepted the already-grown disk
+  without repeating shutdown or image growth. Tested runtime source is commit
+  `090e4b7189b76922a38623b388d90bfa3147afed` (0.0.4); later documentation
+  revisions do not imply another workload deployment.
 - `playbooks/verify.yml`: method-independent supported-interface functional checks;
   source/syntax checks do not establish deployed Elastic functionality.
 - Elastic deployment/configuration playbooks follow the approved installation

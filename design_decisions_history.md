@@ -88,3 +88,27 @@ collector is not part of the selected baseline.
 - Version 0.0.4 remains a narrow compatibility correction. No broken-condition
   setting, reduced verification, new dependency or access exception is selected.
   Implementation commit and final execution proof follow after publication.
+
+## 2026-11-15 — Maintenance acceptance and paired CaC evidence
+
+- Implementation commit: 090e4b7189b76922a38623b388d90bfa3147afed
+  (0.0.4), published and independently SSH-readback verified. Three maintained
+  regressions passed in cached Core 2.20 in 5.971 seconds, covering actual source
+  tag guards, all assertion types and native-output parser-to-assertion flow.
+  The corrected source also passed target-runtime syntax.
+- Normal AAP final acceptance succeeded 17:15:21.220180–17:15:58.799007 UTC
+  (37.579 seconds): no failures or unreachable hosts, all six offline growth
+  steps skipped on the already-grown image, root helper reports no further
+  change, all final capacity/identity/state/source checks accepted.
+- Earlier failures remain documented; this is corrected eventual acceptance,
+  not a first-pass failure-free deployment. Independent native/guest diagnosis
+  had already confirmed disk/XFS/GPT/identity and all thirteen definitions/states
+  against the original protected baseline. Final independent post-proof follows
+  the successful run and remains only in the encrypted companion.
+- The user reiterated keeping public playbooks paired with private CaC values.
+  Preserve the tested immutable public source pin, saved authorization=false,
+  actual object bindings, original ten-GiB creation history and separate growth/
+  acceptance evidence in whole-file Vault. Do not alter the old base artifacts.
+- Version 0.0.5 documents acceptance; the AAP runtime remains pinned to the tested
+  0.0.4 implementation. Full shared import/repeat restoration and live Elastic
+  functionality remain unverified; installation and TLS choices remain pending.
