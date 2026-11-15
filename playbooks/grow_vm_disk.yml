@@ -403,7 +403,8 @@
         - name: Verify the authorized capacity and preservation outcome
           ansible.builtin.assert:
             that:
-              - (__elastic_growth_block_after.stdout | regex_findall('(?m)^Capacity: +([0-9]+)') | first | int) == elastic_vm_disk_target_gib * 1073741824
+              - >-
+                (__elastic_growth_block_after.stdout | regex_findall('(?m)^Capacity: +([0-9]+)') | first | int) == elastic_vm_disk_target_gib * 1073741824
               - __elastic_growth_disk_after.stat.inode == __elastic_growth_disk_before.stat.inode
               - __elastic_growth_disk_after.stat.dev == __elastic_growth_disk_before.stat.dev
               - __elastic_growth_root_after.stdout == __elastic_growth_root_before.stdout

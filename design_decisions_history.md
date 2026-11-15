@@ -53,3 +53,19 @@ collector is not part of the selected baseline.
   lazy sequence equality. No inventory change or security exception is needed.
 - Version 0.0.2 is a focused correction within authorized maintenance scope;
   actual rerun and post-growth evidence remain pending. Fix commit ID follows.
+
+## 2026-11-15 — Correct final verification scalar after actual disk growth
+
+- Guard fix commit: 935a5a5e633318462ea0555d767e43e2368dbff8 (0.0.2).
+  Native AAP run began 16:53:54.321223 UTC and ended 16:55:02.552767 UTC.
+  Shutdown, offline resize, restart and the existing GPT/XFS helper succeeded.
+  Final acceptance failed because YAML parsed an unquoted colon-space inside
+  a regular expression as a mapping instead of a conditional string.
+- Immediate read-only native inspection confirms the exact selected VM running
+  and its disk exactly twenty GiB. No emergency restart or blind growth retry.
+- Decision: express that assertion as an explicit folded string and verify every
+  assert condition's parsed type. Do not enable broken conditionals or weaken
+  acceptance. Version 0.0.3 is a focused correction; the existing twenty-GiB
+  branch skips shutdown and image growth on the authorized verification rerun.
+- Source checks and actual next-job/post-proof outcomes remain distinct. Fix
+  commit ID and final evidence follow after execution; no live Elastic claim.
