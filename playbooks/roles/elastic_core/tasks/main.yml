@@ -1,0 +1,27 @@
+---
+- name: Configure the owned single-node Elastic core with protected output
+  no_log: true
+  block:
+    - name: Validate the core deployment contract
+      ansible.builtin.import_tasks: validate.yml
+    - name: Install the pinned native packages
+      ansible.builtin.import_tasks: install.yml
+    - name: Prepare the persistent private certificate authority and backend identity
+      ansible.builtin.import_tasks: tls.yml
+    - name: Configure and initialize Elasticsearch
+      ansible.builtin.import_tasks: elasticsearch.yml
+    - name: Configure and start Kibana
+      ansible.builtin.import_tasks: kibana.yml
+    - name: Read the generated public CA without exporting its private key
+      ansible.builtin.slurp:
+        src: /etc/elastic-demo/pki/ca/ca.crt
+      register: __elastic_core_ca
+    - name: Expose protected core outputs to subsequent roles
+      ansible.builtin.set_fact:
+        elastic_core_result:
+          elasticsearch_url: "https://{{ elastic_demo.bind_address }}:9200"
+          kibana_url: "https://{{ elastic_demo.bind_address }}:5601"
+          tls_ca_pem: "{{ __elastic_core_ca.content | b64decode }}"
+          tls_ca_path: /etc/elastic-demo/pki/ca/ca.crt
+          tls_certificate_path: /etc/elastic-demo/pki/elastic-demo/elastic-demo.crt
+          tls_key_path: /etc/elastic-demo/pki/elastic-demo/elastic-demo.key

@@ -6,18 +6,23 @@
   become: false
   no_log: true
   tasks:
+    - name: Resolve only the explicit or existing credential-mounted verification file
+      ansible.builtin.set_fact:
+        __elastic_demo_config_file: >-
+          {{ elastic_demo_config_file | default(generic_linux_vm_config_file | default('')) }}
+
     - name: Require an actual execution with a protected configuration file
       ansible.builtin.assert:
         that:
           - not ansible_check_mode
-          - elastic_demo_config_file is defined
-          - elastic_demo_config_file is string
-          - elastic_demo_config_file is abs
+          - __elastic_demo_config_file | length > 0
+          - __elastic_demo_config_file is string
+          - __elastic_demo_config_file is abs
         fail_msg: Supply the encrypted configuration file and execute the complete verification playbook.
 
     - name: Inspect the supplied configuration without following links
       ansible.builtin.stat:
-        path: "{{ elastic_demo_config_file }}"
+        path: "{{ __elastic_demo_config_file }}"
         follow: false
       register: __elastic_demo_config_stat
 
@@ -30,7 +35,7 @@
 
     - name: Load only the explicitly supplied protected configuration
       ansible.builtin.include_vars:
-        file: "{{ elastic_demo_config_file }}"
+        file: "{{ __elastic_demo_config_file }}"
         name: __elastic_demo_configuration
 
     - name: Bind the functional verification inputs
@@ -41,6 +46,21 @@
           {{ lookup('ansible.builtin.password', '/dev/null', length=32, chars=['hexdigits']) | lower }}
         __elastic_demo_transaction_id: >-
           {{ lookup('ansible.builtin.password', '/dev/null', length=16, chars=['hexdigits']) | lower }}
+
+    - name: Restrict live deployment metadata to trust and exact telemetry identity
+      ansible.builtin.assert:
+        that:
+          - elastic_demo_runtime_verification is mapping
+          - >-
+            elastic_demo_runtime_verification.keys() | list |
+            difference(['tls_ca_pem', 'expected_agent_ids', 'fleet_server_agent_id', 'telemetry_checks']) | length == 0
+        quiet: true
+      when: elastic_demo_runtime_verification is defined
+
+    - name: Merge exact current deployment outputs while retaining protected URLs and credentials
+      ansible.builtin.set_fact:
+        __elastic_demo: "{{ __elastic_demo | combine(elastic_demo_runtime_verification) }}"
+      when: elastic_demo_runtime_verification is defined
 
     - name: Require complete credentials and explicit telemetry expectations
       ansible.builtin.assert:
@@ -80,6 +100,7 @@
         - "{{ __elastic_demo.elasticsearch_url }}"
         - "{{ __elastic_demo.kibana_url }}"
         - "{{ __elastic_demo.apm_url }}"
+        - "{{ __elastic_demo.kibana_public_url }}"
 
     - name: Validate the exact Fleet identifiers used in URL paths
       ansible.builtin.assert:
@@ -102,6 +123,47 @@
         __elastic_demo_kibana_url: "{{ __elastic_demo.kibana_url | regex_replace('/+$', '') }}"
         __elastic_demo_apm_url: "{{ __elastic_demo.apm_url | regex_replace('/+$', '') }}"
         __elastic_demo_test_index: "elastic-demo-functional-{{ __elastic_demo_trace_id }}"
+
+    - name: Verify the actual public UI HTTPS certificate and login page
+      ansible.builtin.uri:
+        url: "{{ __elastic_demo.kibana_public_url }}/login"
+        method: GET
+        validate_certs: true
+        follow_redirects: none
+        return_content: true
+        status_code: 200
+        timeout: 15
+      register: __elastic_demo_public_login
+      until: __elastic_demo_public_login.status | default(-1) == 200
+      retries: 12
+      delay: 5
+
+    - name: Require the Kibana UI rather than an unrelated proxy page
+      ansible.builtin.assert:
+        that:
+          - "'text/html' in __elastic_demo_public_login.content_type"
+          - "'kbn-injected-metadata' in __elastic_demo_public_login.content"
+        fail_msg: The approved HTTPS UI must serve the actual Kibana login page without bypassing proxy authentication.
+        quiet: true
+
+    - name: Verify authenticated Kibana through the approved nginx route
+      ansible.builtin.uri:
+        url: "{{ __elastic_demo.kibana_public_url }}/api/status"
+        method: GET
+        url_username: "{{ __elastic_demo.operator_username }}"
+        url_password: "{{ __elastic_demo.operator_password }}"
+        force_basic_auth: true
+        validate_certs: true
+        follow_redirects: none
+        return_content: true
+        status_code: 200
+        timeout: 15
+      register: __elastic_demo_public_status
+      until:
+        - __elastic_demo_public_status.status | default(-1) == 200
+        - __elastic_demo_public_status.json.status.overall.level == 'available'
+      retries: 12
+      delay: 5
 
     - name: Publish only nonsecret test ownership identifiers before any API write
       ansible.builtin.set_stats:

@@ -1,0 +1,9 @@
+---
+# Shared protected inputs are deliberately supplied in elastic_demo by the caller.
+elastic_fleet_agent_policy_id: elastic-demo-single-vm
+elastic_fleet_output_id: elastic-demo-internal-output
+elastic_fleet_host_id: elastic-demo-internal-fleet-server
+elastic_fleet_namespace: elastic_demo
+elastic_fleet_state_directory: /etc/elastic-demo/fleet
+elastic_fleet_server_package_version: '1.6.1'
+elastic_fleet_system_package_version: '3.5.0'

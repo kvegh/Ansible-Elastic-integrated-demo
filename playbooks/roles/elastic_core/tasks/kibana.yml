@@ -1,0 +1,73 @@
+---
+- name: Create the Kibana service-readable certificate directory
+  ansible.builtin.file:
+    path: /etc/kibana/elastic-demo
+    state: directory
+    owner: root
+    group: kibana
+    mode: '0750'
+
+- name: Copy only the Kibana certificate identity and public CA
+  ansible.builtin.copy:
+    src: "/etc/elastic-demo/pki/{{ item.source }}"
+    dest: "/etc/kibana/elastic-demo/{{ item.name }}"
+    remote_src: true
+    owner: root
+    group: kibana
+    mode: '0640'
+  loop:
+    - {source: ca/ca.crt, name: ca.crt}
+    - {source: elastic-demo/elastic-demo.crt, name: node.crt}
+    - {source: elastic-demo/elastic-demo.key, name: node.key}
+  notify: Restart Kibana
+
+- name: Configure Kibana on its private HTTPS interface
+  ansible.builtin.template:
+    src: kibana.yml.j2
+    dest: /etc/kibana/kibana.yml
+    owner: root
+    group: kibana
+    mode: '0640'
+  notify: Restart Kibana
+
+- name: Bound the demo Node heap while preserving other vendor options
+  ansible.builtin.lineinfile:
+    path: /etc/kibana/node.options
+    regexp: '^--max-old-space-size='
+    line: --max-old-space-size=768
+    create: true
+    owner: root
+    group: kibana
+    mode: '0640'
+  notify: Restart Kibana
+
+- name: Apply pending Kibana configuration once before readiness
+  ansible.builtin.meta: flush_handlers
+
+- name: Ensure the private Kibana service is enabled and running
+  ansible.builtin.systemd_service:
+    name: kibana
+    enabled: true
+    state: started
+
+# The supported status API verifies actual backend authentication and readiness.
+# Justification: ../../../../docs/elastic-core.md#supporting-tools
+- name: Wait for authenticated private Kibana readiness
+  ansible.builtin.uri:
+    url: "https://{{ elastic_demo.bind_address }}:5601/api/status"
+    method: GET
+    url_username: "{{ elastic_demo.operator_username }}"
+    url_password: "{{ elastic_demo.operator_password }}"
+    force_basic_auth: true
+    ca_path: /etc/elastic-demo/pki/ca/ca.crt
+    validate_certs: true
+    follow_redirects: none
+    status_code: 200
+    return_content: true
+    timeout: 15
+  register: __elastic_core_kibana_status
+  until:
+    - __elastic_core_kibana_status.status | default(-1) == 200
+    - __elastic_core_kibana_status.json.status.overall.level == 'available'
+  retries: 48
+  delay: 5

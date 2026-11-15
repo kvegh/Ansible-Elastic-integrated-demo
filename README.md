@@ -12,9 +12,17 @@ The user explicitly approved growing only the existing demo VM disk, including
 its graceful shutdown and restart. Disk growth and deployed Elastic services
 must be reported separately from published source.
 
-Native RPM/systemd versus containers and LAN-only TLS versus an existing HTTPS
-proxy are pending user decisions. No installation or network choice is implied
-by this initial source. Do not deploy a proposed architecture before approval.
+The approved installation uses native RPMs and systemd on RHEL. Pin Elasticsearch,
+Kibana and Elastic Agent to 9.5.6. Bind all backend services to the existing
+internal interface; publish only Kibana through the existing nginx reverse proxy,
+existing Certbot account and one public DNS name. Reuse internal networking and
+add scoped host entries only when required; no additional public API hostnames.
+
+The full deployment entry point is `playbooks/deploy.yml`. It binds the existing
+VM's protected SSH keys and identity, installs the core and Fleet/APM/system
+telemetry, imports the single-UI access stage and finishes with actual functional
+verification. The new RPM workflow is being qualified; installed functionality
+must not be inferred from published or uncommitted source.
 
 ## Repository boundaries
 
@@ -38,9 +46,14 @@ VM history. It is preserved; it is not made public or silently overwritten.
   revisions do not imply another workload deployment.
 - `playbooks/verify.yml`: method-independent supported-interface functional checks;
   source/syntax checks do not establish deployed Elastic functionality.
-- Elastic deployment/configuration playbooks follow the approved installation
-  and TLS decisions. Elasticsearch, Kibana, Fleet/APM and data collection must
-  all have explicit verification; package installation alone is insufficient.
+- `playbooks/deploy.yml`: approved single-VM RPM workflow, with explicit launch
+  authorization and protected file binding. New source remains unqualified until
+  the complete AAP run and functional acceptance succeed.
+- `playbooks/configure_access.yml`: one scoped nginx/DNS/Certbot UI route; shared
+  nginx/auth configuration and unrelated virtual hosts are preserved.
+- Core and Fleet role interfaces are documented in
+  [core configuration](docs/elastic-core.md), [Fleet/APM](docs/elastic-fleet.md)
+  and [UI access](docs/elastic-access.md).
 
 [CaC contract](docs/cac-contract.md) documents integration with the existing
 shared importer. Initial bootstrap and full automatic restoration must not be
@@ -59,12 +72,13 @@ Run the small offline maintenance regressions with the existing Ansible
 execution environment (Python, PyYAML and `ansible-playbook` already included):
 
 ```sh
-python3 -m unittest discover -s tests -p test_growth_contract.py -v
+python3 -m unittest discover -s tests -v
 ```
 
-They load the actual guards, parser and final assertions, using generic data
-and local execution only. They test default/partial tags, conditional types and
-unchanged/missing/changed VM states; they never connect to a VM or resize a disk.
+They load actual source tasks with generic data and local execution only. They
+cover full-run authorization, parsed conditional types, unchanged/missing/changed
+VM states and the boundary preventing runtime metadata from replacing URLs or
+credentials. They never connect to a VM, install software or resize a disk.
 
 The authoritative source version is in `VERSION`. See
 [decision history](design_decisions_history.md) for approvals, proposals and

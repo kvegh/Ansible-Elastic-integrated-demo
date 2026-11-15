@@ -8,11 +8,13 @@ against Elastic: no installed Elastic environment exists at this checkpoint.
 ## Prerequisites and inputs
 
 Use the existing approved Ansible runtime, network access and Vault mechanism.
-Supply an absolute regular encrypted file with an `elastic_demo` mapping:
+Supply an absolute regular encrypted file with an `elastic_demo` mapping,
+either explicitly or through the existing credential-mounted
+`generic_linux_vm_config_file` binding:
 
 | Key | Required value |
 | --- | --- |
-| `elasticsearch_url`, `kibana_url`, `apm_url` | Selected HTTPS URLs without embedded user information, query or fragment |
+| `elasticsearch_url`, `kibana_url`, `apm_url`, `kibana_public_url` | Selected HTTPS URLs without embedded user information, query or fragment |
 | `operator_username`, `operator_password` | Protected credentials scoped to the test operations |
 | `tls_ca_pem` | Trusted public CA PEM for the selected services |
 | `apm_secret_token` | Separate protected APM intake bearer secret |
@@ -52,9 +54,18 @@ completion of every check and cleanup publishes `elastic_demo_functional` with
 These IDs assist reconciliation if a create response is lost; never retry or
 broadly delete uncertain resources blindly.
 
+The complete deployment imports this functional stage after installation and UI
+configuration. It provides only freshly generated CA PEM, exact Fleet IDs and
+telemetry expectations as `elastic_demo_runtime_verification`; a strict key
+allowlist retains file-bound URLs and credentials. Standalone runs use the
+persisted protected values. Live API compatibility and complete deployment
+acceptance still require the actual selected release to pass.
+
 ## Exercised outcomes and test data
 
-The test requires a responding non-red Elasticsearch cluster, available Kibana,
+The test first validates the actual public UI certificate, Kibana login HTML and
+authenticated supported status API through nginx, preserving inherited proxy
+authentication. It then requires a responding non-red Elasticsearch cluster, available Kibana,
 every selected Fleet agent active/online, and a healthy Fleet Server component.
 It creates a random test-owned index, indexes a unique marker and verifies the
 exact searchable document. Cleanup deletes only the exact index successfully

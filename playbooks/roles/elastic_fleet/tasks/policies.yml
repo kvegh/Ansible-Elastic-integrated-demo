@@ -1,0 +1,118 @@
+---
+- name: Elastic Fleet | Define only Fleet Server, APM intake and bounded Linux telemetry
+  ansible.builtin.set_fact:
+    __elastic_fleet_package_resources:
+      - path: package_policies
+        id: elastic-demo-fleet-server-integration
+        query: '?format=simplified'
+        body:
+          name: Elastic demo Fleet Server
+          description: Managed by Ansible-Elastic-integrated-demo; single-VM policy.
+          namespace: "{{ elastic_fleet_namespace }}"
+          policy_ids: ["{{ elastic_fleet_agent_policy_id }}"]
+          package:
+            name: fleet_server
+            version: "{{ elastic_fleet_server_package_version }}"
+          inputs:
+            fleet_server-fleet-server:
+              enabled: true
+              vars:
+                max_agents: 1
+      - path: package_policies
+        id: elastic-demo-apm-integration
+        query: '?format=simplified'
+        body:
+          name: Elastic demo APM intake
+          description: Managed by Ansible-Elastic-integrated-demo; single-VM policy.
+          namespace: "{{ elastic_fleet_namespace }}"
+          policy_ids: ["{{ elastic_fleet_agent_policy_id }}"]
+          package:
+            name: apm
+            version: "{{ elastic_demo.stack_version }}"
+          inputs:
+            apmserver-apm:
+              enabled: true
+              vars:
+                host: "{{ elastic_demo.bind_address }}:8200"
+                url: "{{ elastic_demo.apm_url }}"
+                secret_token: "{{ elastic_demo.apm_secret_token }}"
+                api_key_enabled: false
+                enable_rum: false
+                anonymous_enabled: false
+                capture_personal_data: false
+                tls_enabled: true
+                tls_certificate: "{{ elastic_core_result.tls_certificate_path }}"
+                tls_key: "{{ elastic_core_result.tls_key_path }}"
+                tls_supported_protocols: [TLSv1.2, TLSv1.3]
+                tail_sampling_enabled: false
+                java_attacher_enabled: false
+      - path: package_policies
+        id: elastic-demo-system-integration
+        query: '?format=simplified'
+        body:
+          name: Elastic demo system telemetry
+          description: Managed by Ansible-Elastic-integrated-demo; single-VM policy.
+          namespace: "{{ elastic_fleet_namespace }}"
+          policy_ids: ["{{ elastic_fleet_agent_policy_id }}"]
+          package:
+            name: system
+            version: "{{ elastic_fleet_system_package_version }}"
+          inputs:
+            system-logfile:
+              enabled: true
+              streams:
+                system.auth:
+                  enabled: true
+                  vars:
+                    paths: ['/var/log/secure*']
+                    ignore_older: 1h
+                    preserve_original_event: false
+                system.syslog:
+                  enabled: true
+                  vars:
+                    paths: ['/var/log/messages*']
+                    ignore_older: 1h
+                    exclude_files: ['\.gz$']
+                    preserve_original_event: false
+            system-journald:
+              enabled: false
+            system-winlog:
+              enabled: false
+            system-system/metrics:
+              enabled: true
+              streams:
+                system.cpu:
+                  enabled: true
+                  vars:
+                    period: 30s
+                    cpu.metrics: [percentages, normalized_percentages]
+                system.memory:
+                  enabled: true
+                  vars:
+                    period: 30s
+                system.load:
+                  enabled: true
+                  vars:
+                    period: 30s
+                system.uptime:
+                  enabled: true
+                  vars:
+                    period: 60s
+                system.core:
+                  enabled: false
+                system.diskio:
+                  enabled: false
+                system.filesystem:
+                  enabled: false
+                system.fsstat:
+                  enabled: false
+                system.network:
+                  enabled: false
+                system.ntp:
+                  enabled: false
+                system.process:
+                  enabled: false
+                system.process_summary:
+                  enabled: false
+                system.socket_summary:
+                  enabled: false

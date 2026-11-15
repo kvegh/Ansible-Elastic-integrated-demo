@@ -1,0 +1,177 @@
+---
+- name: Elastic Fleet | Read the existing service-account token names without rotating anything
+  ansible.builtin.uri:
+    url: "{{ __elastic_fleet_es_url }}/_security/service/elastic/fleet-server/credential"
+    status_code: 200
+  register: __elastic_fleet_service_credentials
+
+- name: Elastic Fleet | Require token storage and Elasticsearch to agree before bootstrap
+  ansible.builtin.assert:
+    that:
+      - >-
+        __elastic_fleet_token_stat.exists ==
+        ('elastic-demo-bootstrap' in __elastic_fleet_service_credentials.json.tokens)
+    fail_msg: The named service token and protected local file disagree; recover the existing token outcome before retrying, without deleting or rotating it.
+
+# Service-token values are returned once. Never retry this POST automatically after uncertainty.
+# The file-path CLI avoids putting its value in process arguments; see ../../../../docs/elastic-fleet.md#bootstrap-and-recovery.
+- name: Elastic Fleet | Create the uniquely named bootstrap service token once
+  ansible.builtin.uri:
+    url: "{{ __elastic_fleet_es_url }}/_security/service/elastic/fleet-server/credential/token/elastic-demo-bootstrap"
+    method: POST
+    status_code: 200
+  register: __elastic_fleet_created_token
+  when: not __elastic_fleet_token_stat.exists
+  changed_when: true
+
+- name: Elastic Fleet | Persist the returned token only in its protected local file
+  ansible.builtin.copy:
+    content: "{{ __elastic_fleet_created_token.json.token.value }}"
+    dest: "{{ __elastic_fleet_token_path }}"
+    owner: root
+    group: root
+    mode: '0600'
+    force: false
+  when: not __elastic_fleet_token_stat.exists
+
+- name: Elastic Fleet | Read the existing protected token without exposing it
+  ansible.builtin.slurp:
+    src: "{{ __elastic_fleet_token_path }}"
+  register: __elastic_fleet_saved_token
+
+- name: Elastic Fleet | Validate the persisted token against its actual service account
+  ansible.builtin.uri:
+    url: "{{ __elastic_fleet_es_url }}/_security/_authenticate"
+    url_username: ''
+    url_password: ''
+    force_basic_auth: false
+    headers:
+      Authorization: "Bearer {{ __elastic_fleet_saved_token.content | b64decode }}"
+    status_code: 200
+  register: __elastic_fleet_token_auth
+
+- name: Elastic Fleet | Require the expected service-account identity
+  ansible.builtin.assert:
+    that: __elastic_fleet_token_auth.json.username == 'elastic/fleet-server'
+
+- name: Elastic Fleet | Persist intent before the one-time native enrollment command
+  ansible.builtin.copy:
+    content: "{{ {'intent': __elastic_fleet_enrollment_intent, 'state': 'pending'} | to_nice_json }}"
+    dest: "{{ __elastic_fleet_enrollment_path }}"
+    owner: root
+    group: root
+    mode: '0600'
+    force: false
+  when: not __elastic_fleet_enrollment_stat.exists
+
+# RPM enrollment is a vendor CLI capability, not a shell installer; never force or blindly retry it.
+# Rationale: ../../../../docs/elastic-fleet.md#native-content-and-cli-selection
+- name: Elastic Fleet | Enroll the servers-flavor Agent once with trusted private TLS
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/elastic-agent
+      - enroll
+      - "--url={{ elastic_demo.fleet_url }}"
+      - "--fleet-server-es={{ elastic_demo.elasticsearch_url }}"
+      - "--fleet-server-service-token-path={{ __elastic_fleet_token_path }}"
+      - "--fleet-server-policy={{ elastic_fleet_agent_policy_id }}"
+      - "--certificate-authorities={{ elastic_core_result.tls_ca_path }}"
+      - "--fleet-server-es-ca={{ elastic_core_result.tls_ca_path }}"
+      - "--fleet-server-cert={{ elastic_core_result.tls_certificate_path }}"
+      - "--fleet-server-cert-key={{ elastic_core_result.tls_key_path }}"
+      - "--fleet-server-host={{ elastic_demo.bind_address }}"
+      - --fleet-server-port=8220
+      - --fleet-server-timeout=120s
+  when: not __elastic_fleet_enrollment_stat.exists
+  changed_when: true
+
+- name: Elastic Fleet | Enable and start the enrolled native Agent service
+  ansible.builtin.systemd_service:
+    name: elastic-agent
+    enabled: true
+    state: started
+
+# Native status JSON provides the actual local ID; querying by hostname could select another agent.
+# Rationale: ../../../../docs/elastic-fleet.md#native-content-and-cli-selection
+- name: Elastic Fleet | Wait for healthy native status and read the actual local Agent identity
+  ansible.builtin.command:
+    argv: [/usr/bin/elastic-agent, status, --output, json]
+  register: __elastic_fleet_agent_status
+  changed_when: false
+  until: __elastic_fleet_agent_status.rc == 0
+  retries: 30
+  delay: 5
+
+- name: Elastic Fleet | Bind the native Agent status response
+  ansible.builtin.set_fact:
+    __elastic_fleet_native_status: "{{ __elastic_fleet_agent_status.stdout | from_json }}"
+
+- name: Elastic Fleet | Require the exact native version and a Fleet-managed identity
+  ansible.builtin.assert:
+    that:
+      - __elastic_fleet_native_status.info.version == elastic_demo.stack_version
+      - __elastic_fleet_native_status.info.is_managed is true
+      - __elastic_fleet_native_status.info.id is match('^[A-Za-z0-9_-]+$')
+      - >-
+        not __elastic_fleet_enrollment_stat.exists or
+        (__elastic_fleet_prior_enrollment.agent_id | default(__elastic_fleet_native_status.info.id)) == __elastic_fleet_native_status.info.id
+
+- name: Elastic Fleet | Wait for this exact local Agent and every reported component to be online
+  ansible.builtin.uri:
+    url: "{{ __elastic_fleet_kibana_url }}/api/fleet/agents/{{ __elastic_fleet_native_status.info.id }}"
+    status_code: 200
+  register: __elastic_fleet_agent
+  until:
+    - (__elastic_fleet_agent.json.item.policy_id | default('')) == elastic_fleet_agent_policy_id
+    - __elastic_fleet_agent.json.item.active | default(false)
+    - (__elastic_fleet_agent.json.item.status | default('unknown')) == 'online'
+    - (__elastic_fleet_agent.json.item.components | default([])) | length > 0
+    - >-
+      (__elastic_fleet_agent.json.item.components | default([]) |
+       map(attribute='status') | map('lower') | unique | list) == ['healthy']
+  retries: 30
+  delay: 5
+
+- name: Elastic Fleet | Require an actual Fleet Server component on this Agent
+  ansible.builtin.assert:
+    that:
+      - >-
+        (__elastic_fleet_agent.json.item.components |
+         selectattr('type', 'equalto', 'fleet-server') | list) | length > 0
+
+- name: Elastic Fleet | Complete the protected durable enrollment record
+  ansible.builtin.copy:
+    content: >-
+      {{ {'intent': __elastic_fleet_enrollment_intent, 'state': 'complete',
+          'agent_id': __elastic_fleet_native_status.info.id} | to_nice_json }}
+    dest: "{{ __elastic_fleet_enrollment_path }}"
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Elastic Fleet | Return actual nonsecret identifiers for protected functional-test capture
+  ansible.builtin.set_fact:
+    elastic_fleet_result:
+      agent_policy_id: "{{ elastic_fleet_agent_policy_id }}"
+      package_policy_ids:
+        - elastic-demo-fleet-server-integration
+        - elastic-demo-apm-integration
+        - elastic-demo-system-integration
+      expected_agent_ids: ["{{ __elastic_fleet_native_status.info.id }}"]
+      fleet_server_agent_id: "{{ __elastic_fleet_native_status.info.id }}"
+      fleet_url: "{{ elastic_demo.fleet_url }}"
+      apm_url: "{{ elastic_demo.apm_url }}"
+      tls_ca_pem: "{{ elastic_core_result.tls_ca_pem }}"
+      telemetry_checks:
+        - kind: logs
+          index: 'logs-system.syslog-*'
+          dataset: system.syslog
+          agent_id: "{{ __elastic_fleet_native_status.info.id }}"
+        - kind: metrics
+          index: 'metrics-system.cpu-*'
+          dataset: system.cpu
+          agent_id: "{{ __elastic_fleet_native_status.info.id }}"
+        - kind: security
+          index: 'logs-system.auth-*'
+          dataset: system.auth
+          agent_id: "{{ __elastic_fleet_native_status.info.id }}"

@@ -1,0 +1,158 @@
+---
+- name: Gather the minimal supported-platform and interface facts
+  ansible.builtin.setup:
+    gather_subset: [min, network]
+
+- name: Require the approved RHEL and exact Elastic demo contract
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'RedHat'
+      - ansible_facts.distribution_major_version == '9'
+      - ansible_facts.architecture == 'x86_64'
+      - not ansible_check_mode
+      - elastic_demo is mapping
+      - elastic_demo.stack_version == '9.5.6'
+      - elastic_demo.bind_address in ansible_facts.all_ipv4_addresses
+      - elastic_demo.bind_address is match('^(10[.]|192[.]168[.]|172[.](1[6-9]|2[0-9]|3[01])[.])')
+      - elastic_demo.operator_username == 'elastic'
+      - elastic_demo.operator_password is string
+      - elastic_demo.operator_password | length >= 16
+      - elastic_demo.kibana_system_password is string
+      - elastic_demo.kibana_system_password | length >= 16
+      - elastic_demo.tls_dns_names is sequence
+      - elastic_demo.tls_dns_names is not string
+      - elastic_demo.tls_ip_addresses is sequence
+      - elastic_demo.tls_ip_addresses is not string
+      - (elastic_demo.kibana_public_url | urlsplit('scheme')) == 'https'
+      - (elastic_demo.kibana_public_url | urlsplit('hostname')) | length > 0
+      - (elastic_demo.kibana_public_url | urlsplit('username')) is none
+      - (elastic_demo.kibana_public_url | urlsplit('password')) is none
+      - (elastic_demo.kibana_public_url | urlsplit('query')) == ''
+      - (elastic_demo.kibana_public_url | urlsplit('fragment')) == ''
+      - not elastic_demo.kibana_public_url.endswith('/')
+    fail_msg: Supply the exact supported version, assigned private interface, protected credentials and HTTPS UI URL.
+    quiet: true
+
+- name: Require valid literal certificate alternative names
+  ansible.builtin.assert:
+    that:
+      - item is string
+      - item is match('^[A-Za-z0-9][A-Za-z0-9.-]*$')
+    quiet: true
+  loop: "{{ elastic_demo.tls_dns_names + elastic_demo.tls_ip_addresses }}"
+
+- name: Require persistent Kibana encryption keys
+  ansible.builtin.assert:
+    that:
+      - item is string
+      - item | length >= 32
+    quiet: true
+  loop:
+    - "{{ elastic_demo.kibana_security_encryption_key }}"
+    - "{{ elastic_demo.kibana_saved_objects_encryption_key }}"
+    - "{{ elastic_demo.kibana_reporting_encryption_key }}"
+
+- name: Bind the immutable initial deployment inputs without publishing them
+  ansible.builtin.set_fact:
+    __elastic_core_input_digest: >-
+      {{ {'stack_version': elastic_demo.stack_version, 'bind_address': elastic_demo.bind_address,
+          'tls_dns_names': elastic_demo.tls_dns_names | sort,
+          'tls_ip_addresses': elastic_demo.tls_ip_addresses | sort,
+          'operator_password': elastic_demo.operator_password,
+          'kibana_system_password': elastic_demo.kibana_system_password,
+          'security_key': elastic_demo.kibana_security_encryption_key,
+          'saved_objects_key': elastic_demo.kibana_saved_objects_encryption_key,
+          'reporting_key': elastic_demo.kibana_reporting_encryption_key} | to_json(sort_keys=true) | hash('sha256') }}
+
+- name: Inspect the existing core ownership record
+  ansible.builtin.stat:
+    path: /etc/elastic-demo/core-input.sha256
+    follow: false
+  register: __elastic_core_owner
+
+- name: Read the existing protected ownership record
+  ansible.builtin.slurp:
+    src: /etc/elastic-demo/core-input.sha256
+  register: __elastic_core_saved_owner
+  when: __elastic_core_owner.stat.exists
+
+- name: Reject implicit credential certificate or version rotation
+  ansible.builtin.assert:
+    that:
+      - __elastic_core_owner.stat.isreg | default(false)
+      - not (__elastic_core_owner.stat.islnk | default(false))
+      - (__elastic_core_saved_owner.content | b64decode | trim) == __elastic_core_input_digest
+    fail_msg: Saved initial inputs differ; investigate and explicitly plan migration rather than rotating an existing deployment.
+    quiet: true
+  when: __elastic_core_owner.stat.exists
+
+- name: Read installed package ownership before adopting anything
+  ansible.builtin.package_facts:
+    manager: rpm
+
+- name: Inspect an existing Elasticsearch data directory
+  ansible.builtin.stat:
+    path: /var/lib/elasticsearch
+    follow: false
+  register: __elastic_core_data
+
+- name: Inspect an existing unowned data directory without modifying it
+  ansible.builtin.find:
+    paths: /var/lib/elasticsearch
+    hidden: true
+    recurse: false
+    file_type: any
+  register: __elastic_core_unowned_data
+  when:
+    - not __elastic_core_owner.stat.exists
+    - __elastic_core_data.stat.isdir | default(false)
+
+- name: Refuse an unmanaged Elastic installation or data
+  ansible.builtin.assert:
+    that:
+      - "'elasticsearch' not in ansible_facts.packages"
+      - "'kibana' not in ansible_facts.packages"
+      - not (__elastic_core_data.stat.islnk | default(false))
+      - (__elastic_core_unowned_data.matched | default(0)) == 0
+    fail_msg: Existing unmanaged packages or data require an explicit adoption decision.
+    quiet: true
+  when: not __elastic_core_owner.stat.exists
+
+- name: Reject an implicit package upgrade or downgrade
+  ansible.builtin.assert:
+    that:
+      - item.version == elastic_demo.stack_version
+    quiet: true
+  loop: "{{ ansible_facts.packages.get('elasticsearch', []) + ansible_facts.packages.get('kibana', []) }}"
+
+- name: Inspect a configuration file before claiming a fresh installation
+  ansible.builtin.stat:
+    path: /etc/elasticsearch/elasticsearch.yml
+    follow: false
+  register: __elastic_core_unowned_config
+  when: not __elastic_core_owner.stat.exists
+
+- name: Refuse to replace an unowned pre-existing Elasticsearch configuration
+  ansible.builtin.assert:
+    that:
+      - not __elastic_core_unowned_config.stat.exists
+    fail_msg: An existing unowned Elasticsearch configuration requires an explicit adoption decision.
+    quiet: true
+  when: not __elastic_core_owner.stat.exists
+
+- name: Create the private role-owned state directory
+  ansible.builtin.file:
+    path: /etc/elastic-demo
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Persist initial ownership before any recoverable installation step
+  ansible.builtin.copy:
+    content: "{{ __elastic_core_input_digest }}\n"
+    dest: /etc/elastic-demo/core-input.sha256
+    owner: root
+    group: root
+    mode: '0600'
+    force: false

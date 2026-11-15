@@ -1,0 +1,65 @@
+---
+- name: Elastic Fleet | Inspect the local durable token and enrollment state
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop:
+    - "{{ __elastic_fleet_token_path }}"
+    - "{{ __elastic_fleet_enrollment_path }}"
+    - /etc/elastic-agent/fleet.enc
+  register: __elastic_fleet_local_files
+
+- name: Elastic Fleet | Bind the local bootstrap state
+  ansible.builtin.set_fact:
+    __elastic_fleet_token_stat: "{{ __elastic_fleet_local_files.results[0].stat }}"
+    __elastic_fleet_enrollment_stat: "{{ __elastic_fleet_local_files.results[1].stat }}"
+    __elastic_fleet_encrypted_config_stat: "{{ __elastic_fleet_local_files.results[2].stat }}"
+
+- name: Elastic Fleet | Reject symlinks or unowned bootstrap files
+  ansible.builtin.assert:
+    that:
+      - item.isreg | default(false)
+      - not (item.islnk | default(false))
+      - item.uid == 0
+      - item.mode == '0600'
+  loop:
+    - "{{ __elastic_fleet_token_stat }}"
+    - "{{ __elastic_fleet_enrollment_stat }}"
+  when: item.exists
+
+- name: Elastic Fleet | Refuse an existing enrollment without this role's ownership record
+  ansible.builtin.assert:
+    that:
+      - not __elastic_fleet_encrypted_config_stat.exists or __elastic_fleet_enrollment_stat.exists
+      - not __elastic_fleet_enrollment_stat.exists or __elastic_fleet_encrypted_config_stat.exists
+    fail_msg: Local enrollment is incomplete or belongs to another owner; inspect its native outcome before any re-enrollment.
+
+- name: Elastic Fleet | Define the immutable local enrollment intent
+  ansible.builtin.set_fact:
+    __elastic_fleet_enrollment_intent:
+      owner: Ansible-Elastic-integrated-demo
+      stack_version: "{{ elastic_demo.stack_version }}"
+      agent_policy_id: "{{ elastic_fleet_agent_policy_id }}"
+      fleet_url: "{{ elastic_demo.fleet_url }}"
+      elasticsearch_url: "{{ elastic_demo.elasticsearch_url }}"
+      bind_address: "{{ elastic_demo.bind_address }}"
+      tls_ca_path: "{{ elastic_core_result.tls_ca_path }}"
+      tls_certificate_path: "{{ elastic_core_result.tls_certificate_path }}"
+      tls_key_path: "{{ elastic_core_result.tls_key_path }}"
+
+- name: Elastic Fleet | Read this role's prior enrollment record
+  ansible.builtin.slurp:
+    src: "{{ __elastic_fleet_enrollment_path }}"
+  register: __elastic_fleet_saved_enrollment
+  when: __elastic_fleet_enrollment_stat.exists
+
+- name: Elastic Fleet | Bind the prior enrollment record
+  ansible.builtin.set_fact:
+    __elastic_fleet_prior_enrollment: "{{ __elastic_fleet_saved_enrollment.content | b64decode | from_json }}"
+  when: __elastic_fleet_enrollment_stat.exists
+
+- name: Elastic Fleet | Preserve the previous enrollment instead of forcing a replacement
+  ansible.builtin.assert:
+    that: __elastic_fleet_prior_enrollment.intent == __elastic_fleet_enrollment_intent
+    fail_msg: Enrollment settings changed; plan an explicit maintenance and credential-recovery step instead of forcing re-enrollment.
+  when: __elastic_fleet_enrollment_stat.exists

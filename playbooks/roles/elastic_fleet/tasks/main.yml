@@ -1,0 +1,194 @@
+---
+- name: Elastic Fleet | Configure only the approved single-VM native deployment
+  no_log: true
+  block:
+    - name: Elastic Fleet | Require complete protected inputs and the shared exact release
+      ansible.builtin.assert:
+        that:
+          - not ansible_check_mode
+          - elastic_demo is mapping
+          - elastic_demo.stack_version == '9.5.6'
+          - elastic_demo.bind_address is string
+          - elastic_demo.bind_address not in ['0.0.0.0', '::', 'localhost']
+          - elastic_demo.fleet_url == 'https://' ~ elastic_demo.bind_address ~ ':8220'
+          - elastic_demo.apm_url == 'https://' ~ elastic_demo.bind_address ~ ':8200'
+          - elastic_demo.operator_username | length > 0
+          - elastic_demo.operator_password | length > 0
+          - elastic_demo.apm_secret_token | length > 0
+          - elastic_core_result is mapping
+          - elastic_core_result.tls_ca_path is abs
+          - elastic_core_result.tls_certificate_path is abs
+          - elastic_core_result.tls_key_path is abs
+          - elastic_core_result.elasticsearch_url == elastic_demo.elasticsearch_url
+          - elastic_core_result.kibana_url == elastic_demo.kibana_url
+          - elastic_fleet_namespace is match('^[a-z0-9_]+$')
+        fail_msg: Supply the exact release, internal service URLs and completed core TLS result; check mode cannot bootstrap Fleet.
+
+    - name: Elastic Fleet | Require trusted HTTPS API URLs without embedded credentials
+      ansible.builtin.assert:
+        that:
+          - (item | urlsplit('scheme')) == 'https'
+          - (item | urlsplit('hostname')) | length > 0
+          - (item | urlsplit('username')) is none
+          - (item | urlsplit('password')) is none
+          - (item | urlsplit('query')) == ''
+          - (item | urlsplit('fragment')) == ''
+      loop:
+        - "{{ elastic_demo.elasticsearch_url }}"
+        - "{{ elastic_demo.kibana_url }}"
+
+    - name: Elastic Fleet | Bind normalized API URLs and stable bootstrap paths
+      ansible.builtin.set_fact:
+        __elastic_fleet_es_url: "{{ elastic_demo.elasticsearch_url | regex_replace('/+$', '') }}"
+        __elastic_fleet_kibana_url: "{{ elastic_demo.kibana_url | regex_replace('/+$', '') }}"
+        __elastic_fleet_token_path: "{{ elastic_fleet_state_directory }}/service-token"
+        __elastic_fleet_enrollment_path: "{{ elastic_fleet_state_directory }}/enrollment.json"
+
+    - name: Elastic Fleet | Validate immutable enrollment state before changing packages or remote policies
+      ansible.builtin.import_tasks: preflight.yml
+
+    - name: Elastic Fleet | Create private bootstrap state owned by root
+      ansible.builtin.file:
+        path: "{{ elastic_fleet_state_directory }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    # Servers flavor is required to include Fleet Server and APM in RPM installs.
+    # Native-content gap: ../../../../docs/elastic-fleet.md#native-content-and-cli-selection
+    - name: Elastic Fleet | Install the signed exact-version servers-flavor RPM
+      ansible.builtin.dnf:
+        name: "elastic-agent-{{ elastic_demo.stack_version }}"
+        state: present
+        enablerepo: elastic-demo-9
+        disable_gpg_check: false
+      environment:
+        ELASTIC_AGENT_FLAVOR: servers
+
+    # These narrow vendor APIs have no established qualified certified replacement.
+    # Rationale: ../../../../docs/elastic-fleet.md#native-content-and-cli-selection
+    - name: Elastic Fleet | Manage the demo-owned Fleet resources through verified TLS
+      module_defaults:
+        ansible.builtin.uri:
+          url_username: "{{ elastic_demo.operator_username }}"
+          url_password: "{{ elastic_demo.operator_password }}"
+          force_basic_auth: true
+          use_netrc: false
+          validate_certs: true
+          ca_path: "{{ elastic_core_result.tls_ca_path }}"
+          follow_redirects: none
+          unredirected_headers: [Authorization]
+          return_content: true
+          timeout: 120
+          headers:
+            kbn-xsrf: elastic-demo-automation
+      block:
+        - name: Elastic Fleet | Initialize Fleet using its explicitly idempotent setup API
+          ansible.builtin.uri:
+            url: "{{ __elastic_fleet_kibana_url }}/api/fleet/setup"
+            method: POST
+            status_code: 200
+          register: __elastic_fleet_setup
+          changed_when: false
+
+        - name: Elastic Fleet | Require completed Fleet initialization without hidden setup errors
+          ansible.builtin.assert:
+            that:
+              - __elastic_fleet_setup.json.isInitialized is true
+              - __elastic_fleet_setup.json.nonFatalErrors | length == 0
+
+        - name: Elastic Fleet | Read agents on the exact reserved policy before changing its configuration
+          ansible.builtin.uri:
+            url: >-
+              {{ __elastic_fleet_kibana_url ~ '/api/fleet/agents?perPage=100&showInactive=false&kuery=' ~
+                 (('policy_id:"' ~ elastic_fleet_agent_policy_id ~ '"') | urlencode) }}
+            status_code: 200
+          register: __elastic_fleet_prior_agents
+
+        - name: Elastic Fleet | Preserve the single-host boundary before any remote policy update
+          ansible.builtin.assert:
+            that:
+              - __elastic_fleet_prior_agents.json.total == (1 if __elastic_fleet_enrollment_stat.exists else 0)
+              - >-
+                not __elastic_fleet_enrollment_stat.exists or
+                (__elastic_fleet_prior_enrollment.agent_id is not defined) or
+                __elastic_fleet_prior_agents.json['items'][0].id == __elastic_fleet_prior_enrollment.agent_id
+            fail_msg: Fleet registration differs from the recorded single local Agent; inspect the existing native enrollment before changing this policy.
+
+        - name: Elastic Fleet | Install the three exact integration packages
+          ansible.builtin.include_tasks: package.yml
+          loop:
+            - name: fleet_server
+              version: "{{ elastic_fleet_server_package_version }}"
+            - name: apm
+              version: "{{ elastic_demo.stack_version }}"
+            - name: system
+              version: "{{ elastic_fleet_system_package_version }}"
+          loop_control:
+            loop_var: __elastic_fleet_package
+
+        - name: Elastic Fleet | Define only the demo-owned internal output and Fleet host
+          ansible.builtin.set_fact:
+            __elastic_fleet_initial_resources:
+              - path: outputs
+                id: "{{ elastic_fleet_output_id }}"
+                query: ''
+                body:
+                  name: Elastic demo internal output
+                  type: elasticsearch
+                  hosts: ["{{ elastic_demo.elasticsearch_url }}"]
+                  is_default: false
+                  is_default_monitoring: false
+                  ssl:
+                    certificate_authorities: ["{{ elastic_core_result.tls_ca_pem }}"]
+                    verification_mode: full
+              - path: fleet_server_hosts
+                id: "{{ elastic_fleet_host_id }}"
+                query: ''
+                body:
+                  name: Elastic demo internal Fleet Server
+                  host_urls: ["{{ elastic_demo.fleet_url }}"]
+                  is_default: false
+
+        - name: Elastic Fleet | Reconcile the demo-owned internal connection resources
+          ansible.builtin.include_tasks: resource.yml
+          loop: "{{ __elastic_fleet_initial_resources }}"
+          loop_control:
+            loop_var: __elastic_fleet_resource
+
+        - name: Elastic Fleet | Define the single-host Fleet policy
+          ansible.builtin.set_fact:
+            __elastic_fleet_policy_resource:
+              path: agent_policies
+              id: "{{ elastic_fleet_agent_policy_id }}"
+              query: ''
+              create_query: '?sys_monitoring=false'
+              body:
+                name: Elastic demo single VM
+                description: Managed by Ansible-Elastic-integrated-demo; single-VM policy.
+                namespace: "{{ elastic_fleet_namespace }}"
+                monitoring_enabled: [logs, metrics]
+                data_output_id: "{{ elastic_fleet_output_id }}"
+                monitoring_output_id: "{{ elastic_fleet_output_id }}"
+                fleet_server_host_id: "{{ elastic_fleet_host_id }}"
+                is_default: false
+                is_default_fleet_server: false
+                has_fleet_server: true
+
+        - name: Elastic Fleet | Reconcile the single-host Fleet policy
+          ansible.builtin.include_tasks: resource.yml
+          vars:
+            __elastic_fleet_resource: "{{ __elastic_fleet_policy_resource }}"
+
+        - name: Elastic Fleet | Build the three minimal integration policies
+          ansible.builtin.include_tasks: policies.yml
+
+        - name: Elastic Fleet | Reconcile only the three demo-owned integration policies
+          ansible.builtin.include_tasks: resource.yml
+          loop: "{{ __elastic_fleet_package_resources }}"
+          loop_control:
+            loop_var: __elastic_fleet_resource
+
+        - name: Elastic Fleet | Enroll and inspect the one local native Agent
+          ansible.builtin.include_tasks: agent.yml

@@ -112,3 +112,27 @@ collector is not part of the selected baseline.
 - Version 0.0.5 documents acceptance; the AAP runtime remains pinned to the tested
   0.0.4 implementation. Full shared import/repeat restoration and live Elastic
   functionality remain unverified; installation and TLS choices remain pending.
+
+## 2026-11-15 — Approve native RPMs and one public UI route
+
+- Actual user answers resolve the earlier questions: native RPM/systemd; the
+  existing nginx reverse proxy with a new virtual host, existing Certbot SSL and
+  public DNS for only the Kibana UI. Elasticsearch, Fleet and APM stay internal.
+  The user reiterated internal interfaces wherever possible and permits scoped
+  host entries or existing libvirt resolution when necessary. Exact answer
+  timestamps are unavailable; implementation subtasks were created 18:13 UTC.
+- Alternative: four public HTTPS service names was explained and not selected.
+  Do not ask the resolved installation/exposure questions again or add those
+  routes. No additional VM or optional Logstash/OTel component is selected.
+- Match the official Elastic 9.5.6 RPM set on the existing supported RHEL 9 VM,
+  with modest component memory limits for the accepted eight-GiB demo. Generate
+  durable strong application secrets once in the established Runtime Vault; use
+  the existing credential type with a distinct application credential instance.
+- Preserve the original maintenance input and creation/growth history. The new
+  workflow uses strict existing-guest identity, core/Fleet roles, one scoped UI
+  adapter and same-job functional tests. Protected values remain whole-file
+  Vault and native AAP definitions remain paired with source pins.
+- Version 0.1.0 is the new implementation candidate. Syntax/lint/source checks
+  and live complete AAP acceptance remain separate, and are pending here.
+  Sample application instrumentation, endpoint prevention and a licensed or
+  Basic-compatible event-to-AAP design remain explicitly unselected details.

@@ -1,0 +1,58 @@
+---
+# This small task file shares the same GET/create/compare/update contract across six owned Fleet resources.
+# API gap and ownership: ../../../../docs/elastic-fleet.md#native-content-and-cli-selection
+- name: Elastic Fleet | Read the exact demo-owned resource
+  ansible.builtin.uri:
+    url: >-
+      {{ __elastic_fleet_kibana_url }}/api/fleet/{{ __elastic_fleet_resource.path }}/{{ __elastic_fleet_resource.id }}{{ __elastic_fleet_resource.query }}
+    status_code: [200, 404]
+  register: __elastic_fleet_existing_resource
+
+- name: Elastic Fleet | Refuse to adopt an unrelated resource with the same fixed identifier
+  ansible.builtin.assert:
+    that:
+      - __elastic_fleet_existing_resource.json.item.name == __elastic_fleet_resource.body.name
+      - not (__elastic_fleet_existing_resource.json.item.is_preconfigured | default(false))
+    fail_msg: The selected Fleet identifier belongs to an unexpected or preconfigured resource; reconcile ownership before retrying.
+  when: __elastic_fleet_existing_resource.status == 200
+
+- name: Elastic Fleet | Create a missing demo-owned resource once
+  ansible.builtin.uri:
+    url: >-
+      {{ __elastic_fleet_kibana_url ~ '/api/fleet/' ~ __elastic_fleet_resource.path ~
+         (__elastic_fleet_resource.create_query | default(__elastic_fleet_resource.query)) }}
+    method: POST
+    body_format: json
+    body: "{{ __elastic_fleet_resource.body | combine({'id': __elastic_fleet_resource.id}) }}"
+    status_code: 200
+  when: __elastic_fleet_existing_resource.status == 404
+  changed_when: true
+
+- name: Elastic Fleet | Update only changed desired fields on an existing owned resource
+  ansible.builtin.uri:
+    url: >-
+      {{ __elastic_fleet_kibana_url }}/api/fleet/{{ __elastic_fleet_resource.path }}/{{ __elastic_fleet_resource.id }}{{ __elastic_fleet_resource.query }}
+    method: PUT
+    body_format: json
+    body: "{{ __elastic_fleet_resource.body }}"
+    status_code: 200
+  when:
+    - __elastic_fleet_existing_resource.status == 200
+    - >-
+      (__elastic_fleet_existing_resource.json.item |
+       combine(__elastic_fleet_resource.body, recursive=true)) != __elastic_fleet_existing_resource.json.item
+  changed_when: true
+
+- name: Elastic Fleet | Read back the desired resource after any change
+  ansible.builtin.uri:
+    url: >-
+      {{ __elastic_fleet_kibana_url }}/api/fleet/{{ __elastic_fleet_resource.path }}/{{ __elastic_fleet_resource.id }}{{ __elastic_fleet_resource.query }}
+    status_code: 200
+  register: __elastic_fleet_final_resource
+
+- name: Elastic Fleet | Require all explicitly configured fields to have survived API validation
+  ansible.builtin.assert:
+    that:
+      - >-
+        (__elastic_fleet_final_resource.json.item |
+         combine(__elastic_fleet_resource.body, recursive=true)) == __elastic_fleet_final_resource.json.item

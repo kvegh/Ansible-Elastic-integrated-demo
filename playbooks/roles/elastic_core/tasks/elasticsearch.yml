@@ -1,0 +1,133 @@
+---
+- name: Create the Elasticsearch service-readable certificate directory
+  ansible.builtin.file:
+    path: /etc/elasticsearch/certs/elastic-demo
+    state: directory
+    owner: root
+    group: elasticsearch
+    mode: '0750'
+
+- name: Copy only the Elasticsearch certificate identity and public CA
+  ansible.builtin.copy:
+    src: "/etc/elastic-demo/pki/{{ item.source }}"
+    dest: "/etc/elasticsearch/certs/elastic-demo/{{ item.name }}"
+    remote_src: true
+    owner: root
+    group: elasticsearch
+    mode: '0640'
+  loop:
+    - {source: ca/ca.crt, name: ca.crt}
+    - {source: elastic-demo/elastic-demo.crt, name: node.crt}
+    - {source: elastic-demo/elastic-demo.key, name: node.key}
+  notify: Restart Elasticsearch
+
+- name: Configure the private single-node Elasticsearch service
+  ansible.builtin.template:
+    src: elasticsearch.yml.j2
+    dest: /etc/elasticsearch/elasticsearch.yml
+    owner: root
+    group: elasticsearch
+    mode: '0640'
+  notify: Restart Elasticsearch
+
+- name: Set the bounded demo JVM heap
+  ansible.builtin.copy:
+    content: "-Xms2g\n-Xmx2g\n"
+    dest: /etc/elasticsearch/jvm.options.d/elastic-demo.options
+    owner: root
+    group: elasticsearch
+    mode: '0640'
+  notify: Restart Elasticsearch
+
+# The vendor keystore CLI has no qualified current certified Ansible interface.
+# Justification: ../../../../docs/elastic-core.md#supporting-tools
+- name: Read only existing Elasticsearch secure setting names
+  ansible.builtin.command:
+    argv: [/usr/share/elasticsearch/bin/elasticsearch-keystore, list]
+  environment:
+    ES_PATH_CONF: /etc/elasticsearch
+  changed_when: false
+  register: __elastic_core_secure_settings
+
+# Seed only an absent bootstrap setting; never replace an established secret.
+# Justification: ../../../../docs/elastic-core.md#supporting-tools
+- name: Seed the initial bootstrap credential only when absent
+  ansible.builtin.command:
+    argv: [/usr/share/elasticsearch/bin/elasticsearch-keystore, add, --stdin, bootstrap.password]
+    stdin: "{{ elastic_demo.operator_password }}"
+    stdin_add_newline: true
+  environment:
+    ES_PATH_CONF: /etc/elasticsearch
+  when: "'bootstrap.password' not in __elastic_core_secure_settings.stdout_lines"
+  changed_when: true
+
+- name: Apply pending Elasticsearch configuration once before readiness
+  ansible.builtin.meta: flush_handlers
+
+- name: Ensure the private Elasticsearch service is enabled and running
+  ansible.builtin.systemd_service:
+    name: elasticsearch
+    enabled: true
+    state: started
+
+- name: Inspect the persistent credential-initialization marker
+  ansible.builtin.stat:
+    path: /etc/elastic-demo/security-initialized
+    follow: false
+  register: __elastic_core_security_initialized
+
+# Supported HTTPS APIs cover the missing Elastic security bootstrap capability.
+# Justification: ../../../../docs/elastic-core.md#supporting-tools
+- name: Wait for authenticated Elasticsearch over the generated private CA
+  ansible.builtin.uri:
+    url: "https://{{ elastic_demo.bind_address }}:9200/_cluster/health"
+    method: GET
+    url_username: "{{ elastic_demo.operator_username }}"
+    url_password: "{{ elastic_demo.operator_password }}"
+    force_basic_auth: true
+    ca_path: /etc/elastic-demo/pki/ca/ca.crt
+    validate_certs: true
+    follow_redirects: none
+    status_code: 200
+    return_content: true
+    timeout: 15
+  register: __elastic_core_es_health
+  until:
+    - __elastic_core_es_health.status | default(-1) == 200
+    - __elastic_core_es_health.json.status in ['green', 'yellow']
+  retries: 36
+  delay: 5
+
+# Successful bootstrap authentication alone does not persist the reserved password.
+# Justification: ../../../../docs/elastic-core.md#supporting-tools
+- name: Persist the initial reserved account credentials without rotating a completed installation
+  ansible.builtin.uri:
+    url: "https://{{ elastic_demo.bind_address }}:9200/_security/user/{{ item.name }}/_password"
+    method: POST
+    url_username: "{{ elastic_demo.operator_username }}"
+    url_password: "{{ elastic_demo.operator_password }}"
+    force_basic_auth: true
+    ca_path: /etc/elastic-demo/pki/ca/ca.crt
+    validate_certs: true
+    follow_redirects: none
+    body_format: json
+    body:
+      password: "{{ item.password }}"
+    status_code: 200
+    timeout: 15
+  loop:
+    - name: elastic
+      password: "{{ elastic_demo.operator_password }}"
+    - name: kibana_system
+      password: "{{ elastic_demo.kibana_system_password }}"
+  when: not __elastic_core_security_initialized.stat.exists
+  changed_when: true
+
+- name: Mark successful initial credential setup
+  ansible.builtin.copy:
+    content: "{{ elastic_demo.stack_version }}\n"
+    dest: /etc/elastic-demo/security-initialized
+    owner: root
+    group: root
+    mode: '0600'
+    force: false

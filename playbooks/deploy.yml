@@ -1,0 +1,197 @@
+---
+- name: Bind the approved existing VM and protected Elastic configuration
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+  no_log: true
+  any_errors_fatal: true
+  tags: [always]
+  tasks:
+    - name: Require a complete explicitly authorized deployment
+      ansible.builtin.assert:
+        that:
+          - elastic_demo_deploy_authorized | default(false) is sameas true
+          - not ansible_check_mode
+          - ansible_run_tags | difference(['all']) | length == 0
+          - "'all' in ansible_run_tags"
+          - ansible_skip_tags | length == 0
+          - query('ansible.builtin.inventory_hostnames', 'hypervisor') | length == 1
+          - groups.get('elastic_demo_guest', []) | length == 0
+        fail_msg: Authorize the complete deployment to the existing pinned demo VM.
+        quiet: true
+
+    - name: Resolve only the explicit or existing credential-mounted file
+      ansible.builtin.set_fact:
+        __elastic_deploy_config_file: >-
+          {{ elastic_demo_config_file | default(generic_linux_vm_config_file | default('')) }}
+
+    - name: Require an absolute protected configuration binding
+      ansible.builtin.assert:
+        that:
+          - __elastic_deploy_config_file is string
+          - __elastic_deploy_config_file is abs
+        quiet: true
+
+    - name: Load the protected deployment inputs into a private namespace
+      ansible.builtin.include_vars:
+        file: "{{ __elastic_deploy_config_file }}"
+        name: __elastic_deploy_environment
+
+    - name: Bind only the saved target route and application inputs
+      ansible.builtin.set_fact:
+        __elastic_deploy_route: "{{ __elastic_deploy_environment.provisioning }}"
+        __elastic_deploy_expected: "{{ __elastic_deploy_environment.elastic_vm_expected }}"
+        __elastic_deploy_settings: "{{ __elastic_deploy_environment.elastic_demo }}"
+
+    - name: Require consistent existing ownership and private service addresses
+      ansible.builtin.assert:
+        that:
+          - __elastic_deploy_expected.verified is sameas true
+          - __elastic_deploy_expected.vm_name is match('^[a-z][a-z0-9-]{0,62}$')
+          - __elastic_deploy_expected.uuid is match('^[0-9a-f-]{36}$')
+          - __elastic_deploy_expected.machine_id is match('^[0-9a-f]{32}$')
+          - __elastic_deploy_expected.host_keys | length == 3
+          - __elastic_deploy_expected.hypervisor_machine_id == __elastic_deploy_route.hypervisor_pin.machine_id
+          - __elastic_deploy_settings.bind_address == __elastic_deploy_expected.address
+          - __elastic_deploy_settings.bind_address is match('^(10[.]|192[.]168[.]|172[.](1[6-9]|2[0-9]|3[01])[.])')
+          - __elastic_deploy_settings.elasticsearch_url == 'https://' ~ __elastic_deploy_expected.address ~ ':9200'
+          - __elastic_deploy_settings.kibana_url == 'https://' ~ __elastic_deploy_expected.address ~ ':5601'
+          - __elastic_deploy_settings.fleet_url == 'https://' ~ __elastic_deploy_expected.address ~ ':8220'
+          - __elastic_deploy_settings.apm_url == 'https://' ~ __elastic_deploy_expected.address ~ ':8200'
+          - >-
+            hostvars[query('ansible.builtin.inventory_hostnames', 'hypervisor')[0]].ansible_host
+            == __elastic_deploy_route.hypervisor_pin.address
+        fail_msg: Retain the protected existing VM identity and its internal service endpoints.
+        quiet: true
+
+    - name: Allocate this execution's private public-key trust file
+      ansible.builtin.tempfile:
+        state: file
+        prefix: elastic-deploy-trust-
+      register: __elastic_deploy_trust
+
+    - name: Pin both existing SSH hops without changing native trust
+      ansible.builtin.copy:
+        dest: "{{ __elastic_deploy_trust.path }}"
+        mode: '0600'
+        content: |
+          {% for key in __elastic_deploy_route.hypervisor_pin.host_keys %}
+          {{ __elastic_deploy_route.hypervisor_pin.address }} {{ key }}
+          [{{ __elastic_deploy_route.hypervisor_pin.address }}]:{{ __elastic_deploy_route.hypervisor_pin.port }} {{ key }}
+          {% endfor %}
+          {% for key in __elastic_deploy_expected.host_keys %}
+          {{ __elastic_deploy_expected.vm_name }} {{ key }}
+          {% endfor %}
+
+    - name: Bind the existing strict SSH-agent proxy command
+      ansible.builtin.set_fact:
+        __elastic_deploy_proxy_command: >-
+          ssh -o BatchMode=yes -o PasswordAuthentication=no
+          -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes
+          -o UserKnownHostsFile={{ __elastic_deploy_trust.path | quote }}
+          -p {{ __elastic_deploy_route.hypervisor_pin.port }} -W %h:%p
+          {{ __elastic_deploy_route.hypervisor_pin.user }}@{{ __elastic_deploy_route.hypervisor_pin.address }}
+
+    # Reuse the same strict SSH-agent proxy contract as the accepted VM maintenance.
+    # Justification: ../docs/implementation-decisions.md#existing-vm-access
+    - name: Add only the protected existing guest for this execution
+      ansible.builtin.add_host:
+        name: "{{ __elastic_deploy_expected.vm_name }}"
+        groups: elastic_demo_guest
+        ansible_host: "{{ __elastic_deploy_expected.address }}"
+        ansible_port: "{{ __elastic_deploy_expected.port }}"
+        ansible_user: "{{ __elastic_deploy_route.guest_ssh_user }}"
+        ansible_password: "{{ __elastic_deploy_route.guest_ssh_password }}"
+        ansible_become: true
+        ansible_become_user: root
+        ansible_become_password: "{{ __elastic_deploy_route.guest_become_password }}"
+        ansible_host_key_checking: true
+        ansible_ssh_host_key_checking: true
+        ansible_ssh_common_args: >-
+          -o StrictHostKeyChecking=yes
+          -o UserKnownHostsFile={{ __elastic_deploy_trust.path | quote }}
+          -o HostKeyAlias={{ __elastic_deploy_expected.vm_name | quote }}
+          -o ProxyCommand={{ __elastic_deploy_proxy_command | quote }}
+
+- name: Deploy and configure the approved internal Elastic services
+  hosts: elastic_demo_guest
+  become: true
+  gather_facts: false
+  no_log: true
+  any_errors_fatal: true
+  vars:
+    elastic_demo: "{{ hostvars.localhost.__elastic_deploy_settings }}"
+  tasks:
+    - name: Require the complete saved application mapping and one guest
+      ansible.builtin.assert:
+        that:
+          - ansible_play_hosts_all | length == 1
+          - ansible_run_tags | difference(['all']) | length == 0
+          - "'all' in ansible_run_tags"
+          - ansible_skip_tags | length == 0
+          - elastic_demo == hostvars.localhost.__elastic_deploy_settings
+        quiet: true
+
+    - name: Configure the exact existing guest and clean up controller trust
+      block:
+        - name: Read the actual guest machine and native VM identities
+          ansible.builtin.command:
+            argv: [cat, /etc/machine-id, /sys/class/dmi/id/product_uuid]
+          changed_when: false
+          register: __elastic_deploy_guest_identity
+
+        - name: Require the same verified VM before installing software
+          ansible.builtin.assert:
+            that:
+              - __elastic_deploy_guest_identity.stdout_lines | length == 2
+              - __elastic_deploy_guest_identity.stdout_lines[0] | trim == hostvars.localhost.__elastic_deploy_expected.machine_id
+              - __elastic_deploy_guest_identity.stdout_lines[1] | trim | lower == hostvars.localhost.__elastic_deploy_expected.uuid
+            quiet: true
+
+        - name: Configure Elasticsearch and Kibana
+          ansible.builtin.include_role:
+            name: elastic_core
+
+        - name: Configure Fleet Agent APM and system telemetry
+          ansible.builtin.include_role:
+            name: elastic_fleet
+
+        - name: Bind exact live verification metadata without exporting credentials
+          ansible.builtin.set_fact:
+            elastic_demo_runtime_verification:
+              tls_ca_pem: "{{ elastic_core_result.tls_ca_pem }}"
+              expected_agent_ids: "{{ elastic_fleet_result.expected_agent_ids }}"
+              fleet_server_agent_id: "{{ elastic_fleet_result.fleet_server_agent_id }}"
+              telemetry_checks: "{{ elastic_fleet_result.telemetry_checks }}"
+          delegate_to: localhost
+          delegate_facts: true
+
+        - name: Publish only nonsecret deployment identity and verification metadata
+          ansible.builtin.set_stats:
+            data:
+              elastic_demo_deployment:
+                stack_version: "{{ elastic_demo.stack_version }}"
+                vm_name: "{{ hostvars.localhost.__elastic_deploy_expected.vm_name }}"
+                uuid: "{{ hostvars.localhost.__elastic_deploy_expected.uuid }}"
+                internal_service_addresses: true
+                elasticsearch_url: "{{ elastic_core_result.elasticsearch_url }}"
+                kibana_url: "{{ elastic_core_result.kibana_url }}"
+                fleet_url: "{{ elastic_demo.fleet_url }}"
+                apm_url: "{{ elastic_demo.apm_url }}"
+                verification: "{{ hostvars.localhost.elastic_demo_runtime_verification }}"
+            per_host: false
+            aggregate: false
+      always:
+        - name: Remove only this run's controller public-key trust file
+          ansible.builtin.file:
+            path: "{{ hostvars.localhost.__elastic_deploy_trust.path }}"
+            state: absent
+          delegate_to: localhost
+          become: false
+
+- name: Configure the single approved nginx UI endpoint
+  ansible.builtin.import_playbook: configure_access.yml
+
+- name: Verify actual deployed ingestion search Fleet APM and telemetry
+  ansible.builtin.import_playbook: verify.yml

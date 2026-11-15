@@ -1,0 +1,90 @@
+---
+- name: Trust only the documented Elastic package signing identity
+  ansible.builtin.rpm_key:
+    key: https://artifacts.elastic.co/GPG-KEY-elasticsearch
+    fingerprint: 46095ACC8548582C1A2699A9D27D666CD88E42B4
+    state: present
+    validate_certs: true
+
+- name: Define the signed Elastic RPM repository disabled for unrelated updates
+  ansible.builtin.yum_repository:
+    name: elastic-demo-9
+    description: Elastic 9 signed packages for the integrated demo
+    baseurl: https://artifacts.elastic.co/packages/9.x/yum
+    gpgkey: https://artifacts.elastic.co/GPG-KEY-elasticsearch
+    gpgcheck: true
+    sslverify: true
+    enabled: false
+    state: present
+
+# RPM postinst performs security auto-configuration before our later full template.
+# Preseed the vendor-supported false setting; RPM CONFIG|NOREPLACE preserves it.
+# Justification: ../../../../docs/elastic-core.md#rpm-post-installation-order
+- name: Prepare the fresh package configuration directory before RPM post-installation
+  ansible.builtin.file:
+    path: /etc/elasticsearch
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: "'elasticsearch' not in ansible_facts.packages"
+
+- name: Suppress only automatic security generation before the fresh RPM transaction
+  ansible.builtin.copy:
+    content: "xpack.security.enabled: true\nxpack.security.autoconfiguration.enabled: false\n"
+    dest: /etc/elasticsearch/elasticsearch.yml
+    owner: root
+    group: root
+    mode: '0644'
+    force: false
+  when: "'elasticsearch' not in ansible_facts.packages"
+
+- name: Read the preserved fresh-package configuration before DNF
+  ansible.builtin.slurp:
+    src: /etc/elasticsearch/elasticsearch.yml
+  register: __elastic_core_preseed
+  when: "'elasticsearch' not in ansible_facts.packages"
+
+- name: Require the supported automatic-configuration skip before installing
+  ansible.builtin.assert:
+    that:
+      - >-
+        ((__elastic_core_preseed.content | b64decode | from_yaml)
+         ['xpack.security.autoconfiguration.enabled']) is sameas false
+    fail_msg: Preserve the owned explicit configuration; do not install over an unknown automatic security setup.
+    quiet: true
+  when: "'elasticsearch' not in ansible_facts.packages"
+
+- name: Install only the exact matching core package versions
+  ansible.builtin.dnf:
+    name:
+      - "elasticsearch-{{ elastic_demo.stack_version }}"
+      - "kibana-{{ elastic_demo.stack_version }}"
+    state: present
+    enablerepo: elastic-demo-9
+    disable_gpg_check: false
+    install_weak_deps: false
+
+# Built-ins have no sysctl module; use the existing kernel tool for one key.
+# Rationale: ../../../../docs/elastic-core.md#supporting-tools
+- name: Read the existing Elasticsearch mapping limit
+  ansible.builtin.command:
+    argv: [sysctl, -n, vm.max_map_count]
+  changed_when: false
+  register: __elastic_core_map_count
+
+- name: Persist a sufficient mapping limit without lowering a larger existing value
+  ansible.builtin.copy:
+    content: "vm.max_map_count={{ [1048576, __elastic_core_map_count.stdout | int] | max }}\n"
+    dest: /etc/sysctl.d/99-elastic-demo.conf
+    owner: root
+    group: root
+    mode: '0644'
+
+# Apply only this role-owned file, not all unrelated system settings.
+# Rationale: ../../../../docs/elastic-core.md#supporting-tools
+- name: Apply the mapping limit only when the running value is insufficient
+  ansible.builtin.command:
+    argv: [sysctl, -p, /etc/sysctl.d/99-elastic-demo.conf]
+  when: __elastic_core_map_count.stdout | int < 1048576
+  changed_when: true

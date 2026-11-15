@@ -1,0 +1,82 @@
+---
+- name: Create the root-only persistent certificate workspace
+  ansible.builtin.file:
+    path: /etc/elastic-demo/pki
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+# Vendor certutil supports this stack's PEM/SAN format without a new collection.
+# Rationale: ../../../../docs/elastic-core.md#supporting-tools
+- name: Generate the persistent demo CA only once
+  ansible.builtin.command:
+    argv:
+      - /usr/share/elasticsearch/bin/elasticsearch-certutil
+      - ca
+      - --silent
+      - --pem
+      - --out
+      - /etc/elastic-demo/pki/ca.zip
+    creates: /etc/elastic-demo/pki/ca.zip
+  environment:
+    ES_PATH_CONF: /etc/elasticsearch
+
+# Fixed member names avoid archive path traversal and an unzip package dependency.
+# Rationale: ../../../../docs/elastic-core.md#supporting-tools
+- name: Extract only the CA certificate and key without replacing existing material
+  ansible.builtin.script:
+    cmd: extract_certificates.py ca
+    executable: /usr/bin/python3
+  register: __elastic_core_extract_ca
+  changed_when: (__elastic_core_extract_ca.stdout | from_json).changed
+
+- name: Write the exact internal certificate alternative names
+  ansible.builtin.copy:
+    content: >-
+      {{ {'instances': [{'name': 'elastic-demo', 'filename': 'elastic-demo',
+           'dns': elastic_demo.tls_dns_names,
+           'ip': (elastic_demo.tls_ip_addresses + [elastic_demo.bind_address, '127.0.0.1']) | unique | list}]} | to_nice_yaml }}
+    dest: /etc/elastic-demo/pki/instances.yml
+    owner: root
+    group: root
+    mode: '0600'
+
+# One backend identity belongs to this one VM; no public service hostname is added.
+# Rationale: ../../../../docs/elastic-core.md#supporting-tools
+- name: Generate the persistent internal backend certificate only once
+  ansible.builtin.command:
+    argv:
+      - /usr/share/elasticsearch/bin/elasticsearch-certutil
+      - cert
+      - --silent
+      - --pem
+      - --in
+      - /etc/elastic-demo/pki/instances.yml
+      - --ca-cert
+      - /etc/elastic-demo/pki/ca/ca.crt
+      - --ca-key
+      - /etc/elastic-demo/pki/ca/ca.key
+      - --out
+      - /etc/elastic-demo/pki/backend.zip
+    creates: /etc/elastic-demo/pki/backend.zip
+  environment:
+    ES_PATH_CONF: /etc/elasticsearch
+
+# Rationale: ../../../../docs/elastic-core.md#supporting-tools
+- name: Extract only the backend certificate and key without replacing existing material
+  ansible.builtin.script:
+    cmd: extract_certificates.py backend
+    executable: /usr/bin/python3
+  register: __elastic_core_extract_backend
+  changed_when: (__elastic_core_extract_backend.stdout | from_json).changed
+
+- name: Protect the persistent vendor certificate archives
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: root
+    group: root
+    mode: '0600'
+  loop:
+    - /etc/elastic-demo/pki/ca.zip
+    - /etc/elastic-demo/pki/backend.zip

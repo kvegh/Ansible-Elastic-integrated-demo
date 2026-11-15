@@ -1,0 +1,30 @@
+---
+- name: Elastic Fleet | Inspect the exact integration package
+  ansible.builtin.uri:
+    url: "{{ __elastic_fleet_kibana_url }}/api/fleet/epm/packages/{{ __elastic_fleet_package.name }}/{{ __elastic_fleet_package.version }}"
+    status_code: 200
+  register: __elastic_fleet_package_state
+
+# APM is a stack-aligned bundle shipped with the pinned Kibana RPM, not an EPR latest lookup.
+# Rationale: ../../../../docs/elastic-fleet.md#versions-and-package-sources
+- name: Elastic Fleet | Install an integration only when that exact package is not installed
+  ansible.builtin.uri:
+    url: "{{ __elastic_fleet_kibana_url }}/api/fleet/epm/packages/{{ __elastic_fleet_package.name }}/{{ __elastic_fleet_package.version }}"
+    method: POST
+    body_format: json
+    body: {}
+    status_code: 200
+  when: (__elastic_fleet_package_state.json.item.status | default('not_installed')) != 'installed'
+  changed_when: true
+
+- name: Elastic Fleet | Confirm the exact installed integration package
+  ansible.builtin.uri:
+    url: "{{ __elastic_fleet_kibana_url }}/api/fleet/epm/packages/{{ __elastic_fleet_package.name }}/{{ __elastic_fleet_package.version }}"
+    status_code: 200
+  register: __elastic_fleet_installed_package
+
+- name: Elastic Fleet | Require the requested version to be installed
+  ansible.builtin.assert:
+    that:
+      - __elastic_fleet_installed_package.json.item.version == __elastic_fleet_package.version
+      - __elastic_fleet_installed_package.json.item.status == 'installed'

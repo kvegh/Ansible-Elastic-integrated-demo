@@ -1,0 +1,560 @@
+---
+- name: Bind the approved Kibana access request before connecting
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+  any_errors_fatal: true
+  no_log: true
+  tags: [always]
+  tasks:
+    - name: Require the existing credential file and one proxy target
+      ansible.builtin.assert:
+        that:
+          - (elastic_demo_config_file | default(generic_linux_vm_config_file | default(''))) is abs
+          - query('ansible.builtin.inventory_hostnames', 'hypervisor') | length == 1
+          - groups.get('elastic_demo_guest', []) | length in [0, 1]
+          - ansible_run_tags | difference(['all']) | length == 0
+          - "'all' in ansible_run_tags"
+          - ansible_skip_tags | length == 0
+          - not ansible_check_mode
+        fail_msg: Run the complete access stage with its protected configuration and exactly one existing proxy.
+        quiet: true
+
+    - name: Load only the credential-mounted deployment configuration
+      ansible.builtin.include_vars:
+        file: "{{ elastic_demo_config_file | default(generic_linux_vm_config_file) }}"
+        name: __elastic_access_config
+
+    - name: Bind the protected access request and existing hypervisor route
+      ansible.builtin.set_fact:
+        __elastic_access: "{{ __elastic_access_config.elastic_demo.access }}"
+        __elastic_access_pin: "{{ __elastic_access_config.provisioning.hypervisor_pin }}"
+        __elastic_access_guest: "{{ groups.get('elastic_demo_guest', []) | first | default('') }}"
+        __elastic_access_expected: "{{ __elastic_access_config.elastic_vm_expected | default(elastic_vm_expected | default({})) }}"
+
+    - name: Prefer the core deployment CA and retain the standalone protected fallback
+      ansible.builtin.set_fact:
+        __elastic_access_ca: >-
+          {{ hostvars[__elastic_access_guest].elastic_core_result.tls_ca_pem
+             if (__elastic_access_guest | length > 0 and
+                 hostvars[__elastic_access_guest].elastic_core_result is defined)
+             else __elastic_access.tls_ca_pem | default('') }}
+        __elastic_access_guest_address: >-
+          {{ hostvars[__elastic_access_guest].ansible_host
+             if __elastic_access_guest | length > 0
+             else __elastic_access_expected.get('address', '') }}
+
+    - name: Require the exact protected UI route without arbitrary file or port inputs
+      ansible.builtin.assert:
+        that:
+          - __elastic_access.enabled is sameas true
+          - __elastic_access.proxy_inventory_host == query('ansible.builtin.inventory_hostnames', 'hypervisor')[0]
+          - __elastic_access.machine_id == __elastic_access_pin.machine_id
+          - __elastic_access.machine_id is match('^[0-9a-f]{32}$')
+          - __elastic_access.zone is match('^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$')
+          - __elastic_access.record_name is match('^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$')
+          - __elastic_access.hostname == __elastic_access.record_name ~ '.' ~ __elastic_access.zone
+          - __elastic_access.kibana_tls_name is match('^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$')
+          - __elastic_access.public_ipv4 is match('^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$')
+          - __elastic_access.kibana_address == __elastic_access_guest_address
+          - __elastic_access.kibana_address is match('^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$')
+          - __elastic_access.kibana_address != __elastic_access.public_ipv4
+          - __elastic_access.dns_api_token | length > 0
+          - __elastic_access.dns_api_token != 'CHANGEME'
+          - "'-----BEGIN CERTIFICATE-----' in __elastic_access_ca"
+          - "'PRIVATE KEY' not in __elastic_access_ca"
+          - __elastic_access_pin.user != 'root'
+          - __elastic_access_pin.user is match('^[a-z_][a-z0-9_-]*$')
+          - __elastic_access_pin.port is integer
+          - 0 < __elastic_access_pin.port < 65536
+          - __elastic_access_pin.host_keys | length > 0
+          - hostvars[__elastic_access.proxy_inventory_host].ansible_host == __elastic_access_pin.address
+        fail_msg: The protected access route, existing proxy pin, owned guest and public CA must agree.
+        quiet: true
+
+    - name: Allocate temporary controller-side public host-key trust
+      ansible.builtin.tempfile:
+        state: file
+        prefix: elastic-access-trust-
+      register: __elastic_access_trust
+
+    - name: Pin only the existing proxy's approved SSH host keys
+      ansible.builtin.copy:
+        dest: "{{ __elastic_access_trust.path }}"
+        mode: '0600'
+        content: |
+          {% for key in __elastic_access_pin.host_keys %}
+          {{ __elastic_access_pin.address }} {{ key }}
+          [{{ __elastic_access_pin.address }}]:{{ __elastic_access_pin.port }} {{ key }}
+          {% endfor %}
+
+- name: Publish only Kibana through the existing nginx and certificate infrastructure
+  hosts: hypervisor
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  no_log: true
+  vars:
+    __elastic_access: "{{ hostvars.localhost.__elastic_access }}"
+    __elastic_access_pin: "{{ hostvars.localhost.__elastic_access_pin }}"
+    __elastic_access_ca: "{{ hostvars.localhost.__elastic_access_ca }}"
+    __elastic_access_vhost_file: /etc/nginx/conf.d/elastic-demo.conf
+    __elastic_access_ca_file: /etc/nginx/elastic-demo-upstream-ca.pem
+    __elastic_access_marker: '# Managed by Ansible Elastic Integrated Demo access.'
+    __elastic_access_certificate_dir: "/etc/letsencrypt/live/{{ __elastic_access.hostname }}"
+    __elastic_access_http: |
+      {{ __elastic_access_marker }}
+      server {
+          listen 80;
+          server_name {{ __elastic_access.hostname }};
+          location ^~ /.well-known/acme-challenge/ {
+              root /var/lib/letsencrypt;
+              default_type text/plain;
+              try_files $uri =404;
+              auth_basic off;
+          }
+          location / { return 444; }
+      }
+    __elastic_access_https: |
+      {{ __elastic_access_marker }}
+      map $http_upgrade $elastic_demo_connection_upgrade {
+          default upgrade;
+          '' close;
+      }
+      server {
+          listen 80;
+          server_name {{ __elastic_access.hostname }};
+          location ^~ /.well-known/acme-challenge/ {
+              root /var/lib/letsencrypt;
+              default_type text/plain;
+              try_files $uri =404;
+              auth_basic off;
+          }
+          location / { return 301 https://$host$request_uri; }
+      }
+      server {
+          listen 443 ssl;
+          server_name {{ __elastic_access.hostname }};
+          ssl_certificate {{ __elastic_access_certificate_dir }}/fullchain.pem;
+          ssl_certificate_key {{ __elastic_access_certificate_dir }}/privkey.pem;
+          ssl_protocols TLSv1.2 TLSv1.3;
+          location / {
+              proxy_pass https://{{ __elastic_access.kibana_address }}:5601;
+              proxy_ssl_trusted_certificate {{ __elastic_access_ca_file }};
+              proxy_ssl_verify on;
+              proxy_ssl_verify_depth 2;
+              proxy_ssl_server_name on;
+              proxy_ssl_name {{ __elastic_access.kibana_tls_name }};
+              proxy_http_version 1.1;
+              proxy_set_header Host $host;
+              proxy_set_header X-Forwarded-Proto https;
+              proxy_set_header X-Forwarded-For $remote_addr;
+              proxy_set_header Upgrade $http_upgrade;
+              proxy_set_header Connection $elastic_demo_connection_upgrade;
+              proxy_read_timeout 300s;
+          }
+      }
+  tasks:
+    - name: Require the complete access stage before any proxy connection
+      ansible.builtin.assert:
+        that:
+          - ansible_play_hosts_all | length == 1
+          - ansible_run_tags | difference(['all']) | length == 0
+          - "'all' in ansible_run_tags"
+          - ansible_skip_tags | length == 0
+          - not ansible_check_mode
+          - hostvars.localhost.__elastic_access_trust.path is defined
+        fail_msg: Run the complete access stage with its protected preflight.
+        quiet: true
+      tags: [always]
+
+    - name: Check the existing proxy and apply its one owned route
+      block:
+        - name: Retain the existing pinned proxy account and native Machine credential
+          ansible.builtin.set_fact:
+            ansible_user: "{{ __elastic_access_pin.user }}"
+            ansible_port: "{{ __elastic_access_pin.port }}"
+            ansible_host_key_checking: true
+            ansible_ssh_host_key_checking: true
+            ansible_ssh_common_args: >-
+              -o StrictHostKeyChecking=yes
+              -o UserKnownHostsFile={{ hostvars.localhost.__elastic_access_trust.path | quote }}
+
+        - name: Reconnect under the explicit proxy host-key pin
+          ansible.builtin.meta: reset_connection
+
+        - name: Read the actual proxy machine identity
+          ansible.builtin.command:
+            argv: [cat, /etc/machine-id]
+          changed_when: false
+          register: __elastic_access_machine_id
+
+        - name: Require the existing proxy's exact native identity
+          ansible.builtin.assert:
+            that:
+              - inventory_hostname == __elastic_access.proxy_inventory_host
+              - ansible_host == __elastic_access_pin.address
+              - __elastic_access_machine_id.stdout | trim == __elastic_access.machine_id
+            quiet: true
+
+        - name: Require the existing nginx DNS and certificate tools without installing packages
+          ansible.builtin.command:
+            argv: [rpm, -q, nginx, certbot, bind-utils, openssl]
+          changed_when: false
+
+        - name: Read the proxy's current public interface
+          ansible.builtin.setup:
+            gather_subset: ['!all', '!min', network]
+
+        - name: Bind public firewall inspection to the existing public address
+          ansible.builtin.assert:
+            that: ansible_facts.default_ipv4.address == __elastic_access.public_ipv4
+            quiet: true
+
+        - name: Read the active public interface's firewall zone
+          ansible.builtin.command:
+            argv: [firewall-cmd, "--get-zone-of-interface={{ ansible_facts.default_ipv4.interface }}"]
+          changed_when: false
+          failed_when: __elastic_access_zone.rc not in [0, 2]
+          register: __elastic_access_zone
+
+        - name: Read the default firewall zone when the interface has no explicit zone
+          ansible.builtin.command:
+            argv: [firewall-cmd, --get-default-zone]
+          changed_when: false
+          register: __elastic_access_default_zone
+          when: __elastic_access_zone.rc != 0 or __elastic_access_zone.stdout | trim in ['', 'no zone']
+
+        - name: Select only the public interface's existing firewall zone
+          ansible.builtin.set_fact:
+            __elastic_access_firewall_zone: >-
+              {{ (__elastic_access_default_zone.stdout if
+                   __elastic_access_default_zone is not skipped else __elastic_access_zone.stdout) | trim }}
+
+        - name: Require an existing public HTTPS grant in runtime and persistent firewall state
+          ansible.builtin.command:
+            argv: "{{ [ 'firewall-cmd', '--zone=' ~ __elastic_access_firewall_zone ] + item }}"
+          loop:
+            - [--query-service=https]
+            - [--query-port=443/tcp]
+            - [--permanent, --query-service=https]
+            - [--permanent, --query-port=443/tcp]
+          changed_when: false
+          failed_when: __elastic_access_https_rules.rc not in [0, 1]
+          register: __elastic_access_https_rules
+
+        - name: Refuse to add or change proxy firewall rules
+          ansible.builtin.assert:
+            that:
+              - __elastic_access_https_rules.results[:2] | selectattr('rc', 'equalto', 0) | list | length > 0
+              - __elastic_access_https_rules.results[2:] | selectattr('rc', 'equalto', 0) | list | length > 0
+            fail_msg: Existing runtime and persistent HTTPS access must already be prepared for the proxy.
+            quiet: true
+
+        - name: Inspect the existing shared ACME webroot
+          ansible.builtin.stat:
+            path: /var/lib/letsencrypt/.well-known/acme-challenge
+          register: __elastic_access_webroot
+
+        - name: Require the already prepared shared challenge directory
+          ansible.builtin.assert:
+            that: __elastic_access_webroot.stat.isdir | default(false)
+            quiet: true
+
+        - name: Find the existing approved production ACME registration
+          ansible.builtin.find:
+            paths: /etc/letsencrypt/accounts/acme-v02.api.letsencrypt.org/directory
+            patterns: regr.json
+            recurse: true
+            file_type: file
+            follow: false
+          register: __elastic_access_accounts
+
+        - name: Require the existing ACME account without accepting legal terms
+          ansible.builtin.assert:
+            that: __elastic_access_accounts.matched | int > 0
+            quiet: true
+
+        - name: Require the existing renewal timer to be enabled and active
+          ansible.builtin.command:
+            argv: [systemctl, "{{ item }}", certbot-renew.timer]
+          loop: [is-enabled, is-active]
+          changed_when: false
+
+        - name: Inspect the existing complete nginx configuration before changes
+          ansible.builtin.command:
+            argv: [/usr/sbin/nginx, -T]
+          changed_when: false
+          register: __elastic_access_nginx_before
+
+        - name: Inspect only this project's vhost and upstream CA paths
+          ansible.builtin.stat:
+            path: "{{ item }}"
+          loop: ["{{ __elastic_access_vhost_file }}", "{{ __elastic_access_ca_file }}"]
+          register: __elastic_access_files
+
+        - name: Require ordinary owned files rather than symbolic links
+          ansible.builtin.assert:
+            that:
+              - not item.stat.islnk | default(false)
+              - not item.stat.exists or item.stat.isreg | default(false)
+            quiet: true
+          loop: "{{ __elastic_access_files.results }}"
+
+        - name: Preserve existing owned files for focused rollback
+          ansible.builtin.slurp:
+            src: "{{ item.item }}"
+          loop: "{{ __elastic_access_files.results }}"
+          when: item.stat.exists
+          register: __elastic_access_previous_files
+
+        - name: Refuse paths already owned by another service
+          ansible.builtin.assert:
+            that: (item.content | b64decode).startswith(__elastic_access_marker)
+            quiet: true
+          loop: "{{ __elastic_access_previous_files.results }}"
+          when: item.content is defined
+
+        - name: Refuse a duplicate hostname in another loaded nginx virtual host
+          ansible.builtin.assert:
+            that: >-
+              (__elastic_access_nginx_before.stdout | regex_findall('(?m)^\s*server_name\s+([^;]+);') |
+               map('split') | flatten | select('equalto', __elastic_access.hostname) | list | length)
+              ==
+              (__elastic_access_previous_files.results | selectattr('content', 'defined') |
+               selectattr('item.item', 'equalto', __elastic_access_vhost_file) | map(attribute='content') |
+               map('b64decode') | join('\n') | regex_findall('(?m)^\s*server_name\s+([^;]+);') |
+               map('split') | flatten | select('equalto', __elastic_access.hostname) | list | length)
+            quiet: true
+
+        - name: Inspect the one selected certificate pair
+          ansible.builtin.stat:
+            path: "{{ __elastic_access_certificate_dir }}/{{ item }}"
+          loop: [fullchain.pem, privkey.pem]
+          register: __elastic_access_certificate_files
+
+        - name: Reject a partially restored certificate pair
+          ansible.builtin.assert:
+            that: __elastic_access_certificate_files.results | selectattr('stat.exists') | list | length in [0, 2]
+            quiet: true
+
+        # Capability gap: docs/elastic-access.md documents the existing provider
+        # record-set contract absent from the selected certified collections.
+        - name: Read only this UI hostname's exact provider record sets
+          ansible.builtin.uri:
+            url: "https://api.godaddy.com/v1/domains/{{ __elastic_access.zone }}/records/{{ item }}/{{ __elastic_access.record_name }}"
+            headers:
+              Authorization: "Bearer {{ __elastic_access.dns_api_token }}"
+            status_code: 200
+            follow_redirects: none
+            validate_certs: true
+          loop: [A, AAAA, CNAME]
+          delegate_to: localhost
+          become: false
+          register: __elastic_access_dns
+
+        - name: Preserve conflicting DNS records and alternate routes
+          ansible.builtin.assert:
+            that:
+              - __elastic_access_dns.results[0].json is sequence
+              - __elastic_access_dns.results[0].json is not string
+              - __elastic_access_dns.results[0].json is not mapping
+              - __elastic_access_dns.results[0].json | length in [0, 1]
+              - >-
+                __elastic_access_dns.results[0].json | length == 0 or
+                __elastic_access_dns.results[0].json[0].data == __elastic_access.public_ipv4
+              - __elastic_access_dns.results[1].json == []
+              - __elastic_access_dns.results[2].json == []
+            quiet: true
+
+        - name: Publish only the one absent UI A record
+          ansible.builtin.uri:
+            url: "https://api.godaddy.com/v1/domains/{{ __elastic_access.zone }}/records/A/{{ __elastic_access.record_name }}"
+            method: PUT
+            headers:
+              Authorization: "Bearer {{ __elastic_access.dns_api_token }}"
+            body_format: json
+            body: "{{ [{'data': __elastic_access.public_ipv4, 'ttl': 600}] }}"
+            status_code: [200, 204]
+            follow_redirects: none
+            validate_certs: true
+          delegate_to: localhost
+          become: false
+          when: __elastic_access_dns.results[0].json | length == 0
+          changed_when: true
+
+        - name: Verify the exact provider A record after publication
+          ansible.builtin.uri:
+            url: "https://api.godaddy.com/v1/domains/{{ __elastic_access.zone }}/records/A/{{ __elastic_access.record_name }}"
+            headers:
+              Authorization: "Bearer {{ __elastic_access.dns_api_token }}"
+            status_code: 200
+            follow_redirects: none
+            validate_certs: true
+          delegate_to: localhost
+          become: false
+          register: __elastic_access_dns_verified
+
+        - name: Require the saved DNS route to contain only the selected proxy
+          ansible.builtin.assert:
+            that: __elastic_access_dns_verified.json | map(attribute='data') | list == [__elastic_access.public_ipv4]
+            quiet: true
+
+        - name: Configure the one owned virtual host with focused rollback
+          block:
+            - name: Write only the core's public upstream CA
+              ansible.builtin.copy:
+                dest: "{{ __elastic_access_ca_file }}"
+                content: "{{ __elastic_access_marker }}\n{{ __elastic_access_ca }}\n"
+                owner: root
+                group: root
+                mode: '0644'
+              diff: false
+              register: __elastic_access_ca_write
+
+            - name: Verify the private Kibana endpoint's chain and exact TLS name
+              ansible.builtin.command:
+                argv:
+                  - openssl
+                  - s_client
+                  - -connect
+                  - "{{ __elastic_access.kibana_address }}:5601"
+                  - -servername
+                  - "{{ __elastic_access.kibana_tls_name }}"
+                  - -verify_hostname
+                  - "{{ __elastic_access.kibana_tls_name }}"
+                  - -verify_return_error
+                  - -CAfile
+                  - "{{ __elastic_access_ca_file }}"
+                stdin: ''
+              timeout: 30
+              changed_when: false
+
+            - name: Prepare HTTP challenge serving only when a certificate is absent
+              ansible.builtin.copy:
+                dest: "{{ __elastic_access_vhost_file }}"
+                content: "{{ __elastic_access_http }}"
+                owner: root
+                group: root
+                mode: '0600'
+              diff: false
+              when: __elastic_access_certificate_files.results | selectattr('stat.exists') | list | length == 0
+              register: __elastic_access_http_write
+
+            - name: Validate the HTTP challenge configuration before reload
+              ansible.builtin.command:
+                argv: [/usr/sbin/nginx, -t]
+              changed_when: false
+
+            # Keep immediate reload failure inside this block's actual rollback path.
+            # Justification: ../docs/elastic-access.md#immediate-reload-and-rollback
+            - name: Reload only after the owned challenge configuration changed  # noqa: no-handler
+              ansible.builtin.systemd_service:
+                name: nginx
+                state: reloaded
+              when: __elastic_access_http_write is changed
+
+            - name: Require exact public DNS before certificate issuance
+              ansible.builtin.command:
+                argv: [dig, '@8.8.8.8', "{{ __elastic_access.hostname }}.", A, +short, +time=3, +tries=1]
+              changed_when: false
+              register: __elastic_access_public_dns
+              until: __elastic_access_public_dns.rc == 0 and __elastic_access_public_dns.stdout_lines | unique | list == [__elastic_access.public_ipv4]
+              retries: 30
+              delay: 10
+
+            # Preserve the existing certbot account/webroot/renewal owner. No
+            # registration, email, --agree-tos, nginx plugin or new ACME client.
+            - name: Obtain only this UI certificate through the existing account
+              ansible.builtin.command:
+                argv:
+                  - certbot
+                  - certonly
+                  - --webroot
+                  - --webroot-path=/var/lib/letsencrypt
+                  - --non-interactive
+                  - --keep-until-expiring
+                  - "--cert-name={{ __elastic_access.hostname }}"
+                  - "--domains={{ __elastic_access.hostname }}"
+                  - --deploy-hook
+                  - /usr/sbin/nginx -t && /usr/bin/systemctl reload nginx
+                creates: "{{ __elastic_access_certificate_dir }}/fullchain.pem"
+
+            - name: Verify the exact frontend certificate hostname
+              ansible.builtin.command:
+                argv: [openssl, x509, -noout, -checkhost, "{{ __elastic_access.hostname }}", -in, "{{ __elastic_access_certificate_dir }}/fullchain.pem"]
+              changed_when: false
+
+            - name: Write only the Kibana HTTPS proxy and its HTTP challenge route
+              ansible.builtin.copy:
+                dest: "{{ __elastic_access_vhost_file }}"
+                content: "{{ __elastic_access_https }}"
+                owner: root
+                group: root
+                mode: '0600'
+              diff: false
+              register: __elastic_access_https_write
+
+            - name: Validate nginx before the final TLS route reload
+              ansible.builtin.command:
+                argv: [/usr/sbin/nginx, -t]
+              changed_when: false
+
+            - name: Reload only after an owned proxy or CA file changed
+              ansible.builtin.systemd_service:
+                name: nginx
+                state: reloaded
+              when: __elastic_access_https_write is changed or __elastic_access_ca_write is changed
+
+          rescue:
+            - name: Restore only previously owned proxy and CA files
+              ansible.builtin.copy:
+                dest: "{{ item.item.item }}"
+                content: "{{ item.content | b64decode }}"
+                owner: root
+                group: root
+                mode: "{{ '0600' if item.item.item == __elastic_access_vhost_file else '0644' }}"
+              loop: "{{ __elastic_access_previous_files.results }}"
+              when: item.content is defined
+              diff: false
+
+            - name: Remove only this run's newly created owned files
+              ansible.builtin.file:
+                path: "{{ item.item }}"
+                state: absent
+              loop: "{{ __elastic_access_files.results }}"
+              when: not item.stat.exists
+
+            - name: Validate the restored nginx configuration
+              ansible.builtin.command:
+                argv: [/usr/sbin/nginx, -t]
+              changed_when: false
+
+            - name: Reload the restored configuration
+              ansible.builtin.systemd_service:
+                name: nginx
+                state: reloaded
+
+            - name: Stop after the access-stage failure
+              ansible.builtin.fail:
+                msg: >-
+                  Access setup failed; only its previous owned files were restored.
+                  Inspect protected events. An owned DNS record or certificate may
+                  remain for normal recovery.
+
+        - name: Report the completed infrastructure scope without protected values
+          ansible.builtin.set_stats:
+            data:
+              elastic_access_result:
+                configured: true
+                kibana_only: true
+                upstream_tls_verified: true
+                functional_ui_test_required: true
+      always:
+        - name: Remove temporary controller-side public host-key trust
+          ansible.builtin.file:
+            path: "{{ hostvars.localhost.__elastic_access_trust.path }}"
+            state: absent
+          delegate_to: localhost
+          become: false

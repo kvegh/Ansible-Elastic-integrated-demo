@@ -1,0 +1,25 @@
+# Managed by Ansible Elastic Integrated Demo.
+cluster.name: elastic-integrated-demo
+node.name: elastic-demo
+discovery.type: single-node
+path.data: /var/lib/elasticsearch
+path.logs: /var/log/elasticsearch
+network.host: {{ elastic_demo.bind_address | to_json }}
+http.host: {{ elastic_demo.bind_address | to_json }}
+http.port: 9200
+transport.host: 127.0.0.1
+xpack.license.self_generated.type: basic
+xpack.security.enabled: true
+xpack.security.autoconfiguration.enabled: false
+xpack.security.http.ssl:
+  enabled: true
+  certificate_authorities: [/etc/elasticsearch/certs/elastic-demo/ca.crt]
+  certificate: /etc/elasticsearch/certs/elastic-demo/node.crt
+  key: /etc/elasticsearch/certs/elastic-demo/node.key
+xpack.security.transport.ssl:
+  enabled: true
+  verification_mode: full
+  client_authentication: required
+  certificate_authorities: [/etc/elasticsearch/certs/elastic-demo/ca.crt]
+  certificate: /etc/elasticsearch/certs/elastic-demo/node.crt
+  key: /etc/elasticsearch/certs/elastic-demo/node.key
