@@ -14,9 +14,10 @@ precedence. A standalone access job instead needs the durable protected CA and
 existing `elastic_vm_expected.address` in that protected file (or its existing
 explicit saved launch binding). It must use the same existing Machine,
 runtime Vault and configuration-file credential types as the approved target.
-The nginx and certificate stages have run successfully. Complete acceptance
-previously stopped at the controller-to-proxy firewall boundary; the newly
-approved internal grant still requires normal AAP application and verification.
+The nginx and certificate stages, complete deployment and standalone API
+verification have passed. The approved internal HTTPS grant resolved the
+controller-to-proxy firewall boundary; independent readback preserved every
+other firewall zone and existing rule.
 
 ## Protected input contract
 

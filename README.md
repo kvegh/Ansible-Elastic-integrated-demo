@@ -47,8 +47,8 @@ VM history. It is preserved; it is not made public or silently overwritten.
 - `playbooks/verify.yml`: supported-interface functional checks for the public UI,
   index write/search, Fleet, APM intake/search and representative telemetry.
 - `playbooks/deploy.yml`: approved single-VM RPM workflow, with explicit launch
-  authorization and protected file binding. Services are deployed; complete
-  functional acceptance remains pending.
+  authorization and protected file binding. Services are deployed; full
+  deployment, standalone and repeat functional acceptance passed.
 - `playbooks/configure_access.yml`: one scoped nginx/DNS/Certbot UI route; shared
   nginx/auth configuration and unrelated virtual hosts are preserved.
 - Core and Fleet role interfaces are documented in
@@ -60,22 +60,24 @@ shared importer. Initial bootstrap and full automatic restoration must not be
 claimed until tested. [Functional verification](docs/functional-verification.md)
 documents the repeatable command, protected inputs and actual tested scope.
 
-## Current checkpoint — source 0.1.6
+## Verified deployment — source 0.1.6
 
-Native RPM services and Fleet enrollment are healthy. The nginx route and
-certificate setup completed. A login GET from the proxy validated the public
-TLS certificate, returned HTTP 200 and contained the Kibana HTML marker.
+The normal deployment and standalone verification passed against implementation
+`d422eadab896510b8859186a4916068fa8aca955`. Native RPM services and Fleet
+enrollment are healthy. Certificate-verified public login and authenticated
+Kibana access, index write/search, Fleet health, APM intake/search and recent
+logs, metrics and security-relevant telemetry all passed.
 
-The complete AAP acceptance run stopped at its first public HTTPS login check:
-the controller's TCP connection was refused because the existing proxy input
-firewall rejects that source. The user approved general HTTPS access from the existing internal networks.
-Version 0.1.6 records that grant in the access playbook and protected CaC values;
-actual application and complete functional acceptance remain pending.
+The user-approved general internal HTTPS rich rule is present in running and
+persistent firewall state. Independent comparison confirmed that all other
+zones and existing internal rules were preserved. The matching protected
+runtime values and owning-host rebuild CaC are published. The repeat apply
+also passed and skipped both firewall additions. Initial shared CaC restoration
+still requires the dedicated private reader's repository access.
 
-Separate read-only backend checks found a non-red Elasticsearch cluster and
-recent logs, metrics and security-relevant telemetry. Complete index write/search,
-APM intake/search, full UI acceptance and repeat-run verification have not passed.
-The login GET checks HTTP/TLS and HTML; it is not browser UI automation.
+The login check is an HTTPS GET, not browser automation. Synthetic APM intake
+proves ingestion and search; instrumented application tracing and an
+Elastic-to-AAP trigger remain outside the verified scope.
 
 ## Development and verification
 

@@ -326,3 +326,21 @@ existing public-grant cases passed; full strict production lint reported zero
 failures/warnings. Independent read-only review found no firewall logic blocker;
 its one environment-specific documentation term was corrected. Actual native
 application and repeat verification remain pending.
+
+Implementation commit: `d422eadab896510b8859186a4916068fa8aca955` (0.1.6).
+Actual normal deployment passed on 2026-11-16 05:25:15–05:27:23 UTC (127.378s),
+followed by standalone verification at 05:28:26–05:28:45 UTC (19.437s).
+Verified scope: public TLS/login/authenticated status, index write/search and
+exact cleanup, Fleet health, APM intake/search and recent expected-agent logs,
+metrics and security data. Independent all-zone comparison proved only the
+approved internal rule was added in both states. Repeat apply remains pending
+at this documentation checkpoint; no application instrumentation, AAP trigger,
+full formal review or automatic CaC restoration is inferred.
+
+Repeat full deployment passed on 2026-11-16 05:29:20–05:31:35 UTC (135.648s).
+Both runtime and permanent firewall additions were skipped because the exact
+rule already existed. The complete functional scope passed again; CA, Agent
+identity and protected runtime values were retained. All three successful
+native results and the before/after firewall proof are captured encrypted in
+the companion. No additional test run is needed for these documentation-only
+updates. Automatic shared import/restoration remains the separate pending gap.

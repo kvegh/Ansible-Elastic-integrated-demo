@@ -3,28 +3,27 @@
 `playbooks/verify.yml` exercises deployed HTTPS interfaces from the Ansible
 controller or execution environment. It selects no installation method,
 network architecture, DNS name or credential store. The current source is 0.1.6;
-services are deployed, while complete functional acceptance remains pending.
+full deployment, standalone verification and repeat functional acceptance passed.
 
 ## Current verification checkpoint
 
-Native RPM services and Fleet enrollment are healthy, and nginx/certificate
-setup completed. The complete AAP run stopped at its first public HTTPS login
-check: the existing proxy input firewall rejects the controller source, causing
-a refused TCP connection. The user has now approved general internal HTTPS
-access. Source 0.1.6 and protected CaC record that grant; native application and
-complete acceptance are pending.
+The complete deployment and standalone verification passed against source 0.1.6,
+implementation `d422eadab896510b8859186a4916068fa8aca955`. Tests verified the
+public certificate and Kibana login HTML, authenticated public/internal status,
+index write/search and exact cleanup, Fleet health, APM intake/search and recent
+logs, metrics and security telemetry from the expected Agent.
 
-The same login GET from the proxy validated TLS, returned HTTP 200 and contained
-the Kibana HTML marker. Separate supported read-only backend checks found a
-non-red cluster and recent logs, metrics and security-relevant telemetry. These
-observations have a narrower scope than the complete acceptance run: index
-write/search, APM intake/search and full UI acceptance have not passed.
+The approved general internal HTTPS grant resolved the prior controller-to-proxy
+connection refusal. Its runtime and persistent presence and preservation of all
+other firewall zones/rules were independently verified. The standalone run used
+the persisted protected CA and Agent identity. The repeat full apply also passed; both firewall additions were skipped. Application instrumentation and an Elastic-to-AAP trigger
+remain unverified, as declared below; synthetic intake is not an application demo.
 
 ## Prerequisites and inputs
 
 Use the existing approved Ansible runtime and Vault mechanism. The controller
-must be able to reach the approved nginx HTTPS listener; that route is currently
-blocked at the proxy input firewall as described above.
+must be able to reach the approved nginx HTTPS listener. The approved internal
+firewall grant supplies this path in the qualified deployment.
 Supply an absolute regular encrypted file with an `elastic_demo` mapping,
 either explicitly or through the existing credential-mounted
 `generic_linux_vm_config_file` binding:
@@ -75,8 +74,8 @@ The complete deployment imports this functional stage after installation and UI
 configuration. It provides only freshly generated CA PEM, exact Fleet IDs and
 telemetry expectations as `elastic_demo_runtime_verification`; a strict key
 allowlist retains file-bound URLs and credentials. Standalone runs use the
-persisted protected values. The complete functional stage still needs a successful
-run from the controller after the access blocker is resolved.
+persisted protected values. Both the full deployment and standalone stage have now passed from the
+controller using those protected inputs.
 
 ## Automated checks and test data
 
@@ -130,8 +129,7 @@ Primary API references inspected on 2026-11-15:
 - [Get a Fleet agent](https://www.elastic.co/docs/api/doc/kibana/v9/operation/operation-get-fleet-agents-agentid)
 - [APM intake and schemas](https://www.elastic.co/docs/solutions/observability/apm/elastic-apm-events-intake-api)
 
-The remaining workflows require live qualification against the exact selected
-release. The current partial deployment and read-only observations do not
-establish complete functional acceptance, formal review acceptance or CaC
-restoration. Keep the verified scope and remaining gaps explicit in the runtime
-evidence.
+These supported-interface workflows passed against the selected release. Their
+scope does not establish browser-driven dashboard use, actual application
+instrumentation, a full formal review or CaC restoration. Keep those remaining
+gaps explicit.
