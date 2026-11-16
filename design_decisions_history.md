@@ -286,3 +286,22 @@ collector is not part of the selected baseline.
   hostname verification and failure-on-certificate-error. No insecure flag, new
   package, firewall change or service reset is introduced. Version 0.1.5 records
   that narrow correction; complete AAP/UI acceptance remains pending.
+
+## 2026-11-16T05:06:33.048492+00:00 — Record software success and the remaining proxy path blocker
+
+- Implementation `605bc8843d745e813b493549b69ffa219c010a37` (0.1.5)
+  fixes upstream TLS-probe termination. Target source passed strict production
+  lint, and the next native run completed healthy software/enrollment plus nginx
+  and certificate setup.
+- Complete acceptance then stopped at the first controller-side login-page GET
+  with TCP connection refused. The same system-trusted HTTPS request on the
+  proxy returned the actual Kibana page. Existing proxy internal-interface rules
+  reject the controller source for both public and private destination addresses.
+  Direct backend health and recent logs, metrics and security telemetry were
+  observed separately; index/APM and complete UI acceptance remain unverified.
+- Proposed: one source-restricted internal HTTPS grant, retaining existing access
+  controls and full TLS verification. The user requested clarification; approval
+  remains pending. No firewall or DNS mutation was made. The protected companion
+  preserves the full failed run and diagnostic evidence without changing runtime
+  credentials or enrollment. This documentation does not establish live release
+  acceptance or successful CaC restoration.

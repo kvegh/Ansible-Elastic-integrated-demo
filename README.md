@@ -21,8 +21,8 @@ add scoped host entries only when required; no additional public API hostnames.
 The full deployment entry point is `playbooks/deploy.yml`. It binds the existing
 VM's protected SSH keys and identity, installs the core and Fleet/APM/system
 telemetry, imports the single-UI access stage and finishes with actual functional
-verification. The new RPM workflow is being qualified; installed functionality
-must not be inferred from published or uncommitted source.
+verification. The current deployment evidence and remaining acceptance boundary
+are summarized below.
 
 ## Repository boundaries
 
@@ -44,11 +44,11 @@ VM history. It is preserved; it is not made public or silently overwritten.
   without repeating shutdown or image growth. Tested runtime source is commit
   `090e4b7189b76922a38623b388d90bfa3147afed` (0.0.4); later documentation
   revisions do not imply another workload deployment.
-- `playbooks/verify.yml`: method-independent supported-interface functional checks;
-  source/syntax checks do not establish deployed Elastic functionality.
+- `playbooks/verify.yml`: supported-interface functional checks for the public UI,
+  index write/search, Fleet, APM intake/search and representative telemetry.
 - `playbooks/deploy.yml`: approved single-VM RPM workflow, with explicit launch
-  authorization and protected file binding. New source remains unqualified until
-  the complete AAP run and functional acceptance succeed.
+  authorization and protected file binding. Services are deployed; complete
+  functional acceptance remains pending.
 - `playbooks/configure_access.yml`: one scoped nginx/DNS/Certbot UI route; shared
   nginx/auth configuration and unrelated virtual hosts are preserved.
 - Core and Fleet role interfaces are documented in
@@ -60,6 +60,22 @@ shared importer. Initial bootstrap and full automatic restoration must not be
 claimed until tested. [Functional verification](docs/functional-verification.md)
 documents the repeatable command, protected inputs and actual tested scope.
 
+## Current checkpoint — source 0.1.5
+
+Native RPM services and Fleet enrollment are healthy. The nginx route and
+certificate setup completed. A login GET from the proxy validated the public
+TLS certificate, returned HTTP 200 and contained the Kibana HTML marker.
+
+The complete AAP acceptance run stopped at its first public HTTPS login check:
+the controller's TCP connection was refused because the existing proxy input
+firewall rejects that source. A scoped internal HTTPS grant is proposed and
+awaits the user's decision. It is not an approved or applied change.
+
+Separate read-only backend checks found a non-red Elasticsearch cluster and
+recent logs, metrics and security-relevant telemetry. Complete index write/search,
+APM intake/search, full UI acceptance and repeat-run verification have not passed.
+The login GET checks HTTP/TLS and HTML; it is not browser UI automation.
+
 ## Development and verification
 
 Use existing compatible AAP execution environments and content from the approved
@@ -68,7 +84,7 @@ certified content before introducing community collections or supporting code.
 Keep task output protected, TLS verification enabled, changes scoped to owned
 resources and tests limited to dedicated demo data.
 
-Run the small offline maintenance regressions with the existing Ansible
+Run the small offline regressions with the existing Ansible
 execution environment (Python, PyYAML and `ansible-playbook` already included):
 
 ```sh
@@ -84,11 +100,11 @@ fail. They never connect to a VM, install software or resize a disk.
 
 The authoritative source version is in `VERSION`. See
 [decision history](design_decisions_history.md) for approvals, proposals and
-implementation evidence. The first RPM deployment installed the core services and exact integration
-packages, then failed the Fleet policy readback assertion. Version 0.1.1 corrects
-the creation-only hint comparison and reuses Fleet's existing generated server
-integration, preserving enrollment and credentials. Complete deployment, UI
-acceptance and repeat-run verification remain pending.
+implementation evidence. Earlier corrections cover Fleet's create-only policy
+hint, pristine RPM standalone-state ownership, the System dataset name and
+bounded checks against the existing proxy/certificate infrastructure. Their
+versioned details remain in the decision history rather than a running README
+change log.
 
 ## Supporting tools
 
@@ -97,22 +113,3 @@ are justified in [implementation rationale](docs/implementation-decisions.md#dis
 The functional-check documentation explains the narrow supported-API calls.
 No installer wrapper, separate service, new storage manager or testing framework
 is introduced. Actual execution and full formal review remain distinct.
-
-
-Version 0.1.2 additionally distinguishes the RPM-started standalone Agent from
-Fleet enrollment. Existing encrypted configuration alone is insufficient proof
-of enrollment; pristine native state and remote ownership checks must pass before
-continuing. Complete deployment and functional acceptance remain unverified.
-
-Version 0.1.3 corrects the pinned System package process-summary dataset name.
-The live third run passed prior guards and created APM before the System package
-rejected the old underscore spelling. Full application acceptance remains pending.
-
-Version 0.1.4 uses the existing DNS-only getent resolver, recognizes the existing
-unrestricted IPv4 HTTPS rich rule, and requires the durable ACME webroot parent
-rather than Certbot-owned temporary challenge directories. It installs no proxy
-package and changes no firewall or existing renewal configuration.
-
-Version 0.1.5 makes the verified upstream OpenSSL probe terminate explicitly.
-Chain and exact hostname validation remain enabled; no network or trust setting
-changes. Public UI and complete functional acceptance are still being qualified.

@@ -2,12 +2,28 @@
 
 `playbooks/verify.yml` exercises deployed HTTPS interfaces from the Ansible
 controller or execution environment. It selects no installation method,
-network architecture, DNS name or credential store. The tests have not run
-against Elastic: no installed Elastic environment exists at this checkpoint.
+network architecture, DNS name or credential store. The current source is 0.1.5;
+services are deployed, while complete functional acceptance remains pending.
+
+## Current verification checkpoint
+
+Native RPM services and Fleet enrollment are healthy, and nginx/certificate
+setup completed. The complete AAP run stopped at its first public HTTPS login
+check: the existing proxy input firewall rejects the controller source, causing
+a refused TCP connection. A scoped internal HTTPS grant is proposed and awaiting
+the user's decision; it has not been approved or applied.
+
+The same login GET from the proxy validated TLS, returned HTTP 200 and contained
+the Kibana HTML marker. Separate supported read-only backend checks found a
+non-red cluster and recent logs, metrics and security-relevant telemetry. These
+observations have a narrower scope than the complete acceptance run: index
+write/search, APM intake/search and full UI acceptance have not passed.
 
 ## Prerequisites and inputs
 
-Use the existing approved Ansible runtime, network access and Vault mechanism.
+Use the existing approved Ansible runtime and Vault mechanism. The controller
+must be able to reach the approved nginx HTTPS listener; that route is currently
+blocked at the proxy input firewall as described above.
 Supply an absolute regular encrypted file with an `elastic_demo` mapping,
 either explicitly or through the existing credential-mounted
 `generic_linux_vm_config_file` binding:
@@ -33,7 +49,7 @@ The operator needs cluster monitoring, index creation/write/search/deletion for
 `elastic-demo-functional-*`, read access to the selected telemetry and APM data,
 and Kibana status/Fleet-agent read privileges. APM intake uses its separate
 bearer token. Real targets and credentials belong only in the private encrypted
-companion. The pending CaC integration must explicitly bind the protected file;
+companion. The AAP job must explicitly bind the protected file;
 there is no sibling-checkout fallback. No additional collection or Python module
 is required by these verification playbooks.
 
@@ -58,14 +74,17 @@ The complete deployment imports this functional stage after installation and UI
 configuration. It provides only freshly generated CA PEM, exact Fleet IDs and
 telemetry expectations as `elastic_demo_runtime_verification`; a strict key
 allowlist retains file-bound URLs and credentials. Standalone runs use the
-persisted protected values. Live API compatibility and complete deployment
-acceptance still require the actual selected release to pass.
+persisted protected values. The complete functional stage still needs a successful
+run from the controller after the access blocker is resolved.
 
-## Exercised outcomes and test data
+## Automated checks and test data
 
 The test first validates the actual public UI certificate, Kibana login HTML and
 authenticated supported status API through nginx, preserving inherited proxy
-authentication. It then requires a responding non-red Elasticsearch cluster, available Kibana,
+authentication. The login check is an HTTP GET, not browser UI automation: it
+does not execute JavaScript or interact with the login form or dashboards.
+
+After those public UI checks, it requires a responding non-red Elasticsearch cluster, available Kibana,
 every selected Fleet agent active/online, and a healthy Fleet Server component.
 It creates a random test-owned index, indexes a unique marker and verifies the
 exact searchable document. Cleanup deletes only the exact index successfully
@@ -110,6 +129,8 @@ Primary API references inspected on 2026-11-15:
 - [Get a Fleet agent](https://www.elastic.co/docs/api/doc/kibana/v9/operation/operation-get-fleet-agents-agentid)
 - [APM intake and schemas](https://www.elastic.co/docs/solutions/observability/apm/elastic-apm-events-intake-api)
 
-The interfaces require live qualification against the exact selected release.
-Syntax/static checks do not establish deployed success, formal review acceptance
-or CaC restoration. Runtime and API evidence must be recorded after deployment.
+The remaining workflows require live qualification against the exact selected
+release. The current partial deployment and read-only observations do not
+establish complete functional acceptance, formal review acceptance or CaC
+restoration. Keep the verified scope and remaining gaps explicit in the runtime
+evidence.
