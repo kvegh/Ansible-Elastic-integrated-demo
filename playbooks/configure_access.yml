@@ -429,7 +429,8 @@
                   - -verify_return_error
                   - -CAfile
                   - "{{ __elastic_access_ca_file }}"
-                stdin: ''
+                  - -no_ign_eof
+                stdin: 'Q'
               timeout: 30
               changed_when: false
 

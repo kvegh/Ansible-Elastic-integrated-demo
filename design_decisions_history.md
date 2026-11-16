@@ -271,3 +271,18 @@ collector is not part of the selected baseline.
   Full strict offline production lint passed twenty-seven files with zero
   failures/warnings at 2026-11-16 04:40:34–04:41:06 UTC. No live proxy change
   is implied by those checks; the next AAP execution establishes that outcome.
+
+
+## 2026-11-16 — Terminate the verified upstream TLS probe
+
+- Proxy compatibility implementation: 26cf75c0ec49d5f7519f3bd39efe38dcc3d5381a.
+  Actual run passed existing proxy, DNS and prerequisite checks, then timed out
+  waiting on the interactive OpenSSL probe. Its owned files rolled back. Native
+  software repeat applied without managed-resource changes; enrollment remains
+  healthy. No public UI success is claimed.
+- Read-only TCP checks passed all four internal ports. Python TLS and OpenSSL
+  with explicit EOF both validated the exact private chain/name in 0.02 seconds.
+  Send the supported quit input and require EOF handling, retaining CA validation,
+  hostname verification and failure-on-certificate-error. No insecure flag, new
+  package, firewall change or service reset is introduced. Version 0.1.5 records
+  that narrow correction; complete AAP/UI acceptance remains pending.

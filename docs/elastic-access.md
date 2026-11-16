@@ -150,3 +150,7 @@ required. Existing runtime and persistent HTTPS acceptance can use a service,
 port or unrestricted IPv4 TCP/443 rich rule; the playbook changes none of them.
 Only the existing webroot parent is required because Certbot creates/removes
 its challenge subdirectories. See the [built-in getent documentation](https://docs.ansible.com/projects/ansible/latest/collections/ansible/builtin/getent_module.html).
+
+The upstream OpenSSL check uses explicit EOF handling and quit input so it
+finishes after verification rather than waiting interactively. The trusted CA,
+exact TLS name and verification-error failure flags remain mandatory.

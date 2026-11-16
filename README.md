@@ -112,3 +112,7 @@ Version 0.1.4 uses the existing DNS-only getent resolver, recognizes the existin
 unrestricted IPv4 HTTPS rich rule, and requires the durable ACME webroot parent
 rather than Certbot-owned temporary challenge directories. It installs no proxy
 package and changes no firewall or existing renewal configuration.
+
+Version 0.1.5 makes the verified upstream OpenSSL probe terminate explicitly.
+Chain and exact hostname validation remain enabled; no network or trust setting
+changes. Public UI and complete functional acceptance are still being qualified.
