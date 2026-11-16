@@ -123,7 +123,12 @@
               -o StrictHostKeyChecking=yes
               -o UserKnownHostsFile={{ __elastic_growth_trust.path | quote }}
               -o HostKeyAlias={{ elastic_vm_expected.vm_name | quote }}
-              -o ProxyCommand={{ ('ssh -o BatchMode=yes -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o UserKnownHostsFile=' ~ (__elastic_growth_trust.path | quote) ~ ' -p ' ~ (__elastic_growth_route.hypervisor_pin.port | string) ~ ' -W %h:%p ' ~ __elastic_growth_route.hypervisor_pin.user ~ '@' ~ __elastic_growth_route.hypervisor_pin.address) | quote }}
+              -o ProxyCommand={{ (
+                'ssh -o BatchMode=yes -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no '
+                ~ '-o StrictHostKeyChecking=yes -o UserKnownHostsFile=' ~ (__elastic_growth_trust.path | quote)
+                ~ ' -p ' ~ (__elastic_growth_route.hypervisor_pin.port | string)
+                ~ ' -W %h:%p ' ~ __elastic_growth_route.hypervisor_pin.user ~ '@' ~ __elastic_growth_route.hypervisor_pin.address
+              ) | quote }}
 
         - name: Read the actual hypervisor machine identity
           ansible.builtin.command:
@@ -184,7 +189,9 @@
 
         - name: Bind only the native vda reference of the selected existing VM
           ansible.builtin.set_fact:
-            __elastic_growth_target_references: "{{ (__elastic_growth_disk_references.results | selectattr('item', 'equalto', elastic_vm_expected.uuid) | first).stdout }}"
+            __elastic_growth_target_references: >-
+              {{ (__elastic_growth_disk_references.results |
+                  selectattr('item', 'equalto', elastic_vm_expected.uuid) | first).stdout }}
 
         - name: Require one writable vda disk at the exact owned path
           ansible.builtin.assert:

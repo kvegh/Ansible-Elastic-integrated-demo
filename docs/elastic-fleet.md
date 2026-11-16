@@ -76,8 +76,9 @@ passes that file path to the native Agent CLI, keeping the token out of process
 arguments. It never force-enrolls, automatically retries token creation, deletes
 credentials, or rotates tokens as a recovery shortcut.
 
-Before enrollment the role writes a root-only intent record. The encrypted
-native enrollment and that record must agree on later runs. If a response is
+Before enrollment the role writes a root-only intent record. Managed encrypted
+native enrollment and that record must agree on later runs; the narrowly proven
+pristine RPM standalone exception is described below. If a response is
 lost, local enrollment is absent, or token/file state disagrees, the role fails
 and requires inspection of the original native outcome. Do not delete its
 record, retry an uncertain create, or force enrollment to make a rerun pass.
@@ -93,6 +94,43 @@ Package installs and resource creates/updates report changes. Read-before-write
 comparison avoids revising unchanged owned policies. The first and second real
 AAP deployment runs must still verify idempotency; it has not been demonstrated
 by source inspection or syntax checks.
+
+## Pristine RPM standalone state
+
+Elastic Agent 9.5.6 RPM postinstall enables and starts its service. Standalone
+startup can write an Agent identity to `/etc/elastic-agent/fleet.enc`, even
+without Fleet enrollment. The second deployment encountered this native state;
+encrypted-file existence alone was therefore an incorrect enrollment predicate.
+
+The narrow initial-enrollment exception preserves that encrypted file and
+requires no role token or intent, a regular root-owned 0600 main configuration,
+and its actual SHA256 matching the exact installed RPM's original file manifest.
+The RPM must match the selected release and identify digest algorithm 8 (SHA256).
+The role reads these metadata with `rpm --queryformat` because `stat` provides
+only the current digest, not RPM's expected value. No hardcoded observed checksum,
+custom decoder, helper or new secret store is used.
+
+Native status must return valid JSON for the exact release, a valid Agent ID and
+`is_managed: false`; status exit 1 is allowed because factory standalone defaults
+can be degraded. That exact native ID must return HTTP 404 from Fleet, and the
+owned policy must have zero agents, before any remote policy change. A custom
+main configuration, managed or unknown native state, existing registration,
+partial role state or missing identity still fails. Normal role-owned paired
+intent/encrypted state retains its existing immutable-input checks. Fresh
+pre-install state remains unchanged.
+
+The native enrollment command already reloads an existing daemon during Fleet
+Server bootstrap and triggers its own restart after successful enrollment.
+The role does not add a duplicate service restart or a force-enrollment option.
+
+Exact-release source evidence:
+
+- [RPM config file and ownership](https://github.com/elastic/elastic-agent/blob/v9.5.6/dev-tools/packaging/packages.yml#L285)
+- [RPM starts the service](https://github.com/elastic/elastic-agent/blob/v9.5.6/dev-tools/packaging/templates/linux/postinstall.sh.tmpl#L101)
+- [Standalone writes encrypted identity](https://github.com/elastic/elastic-agent/blob/v9.5.6/internal/pkg/agent/cmd/run.go#L341)
+- [Native managed-mode predicate](https://github.com/elastic/elastic-agent/blob/v9.5.6/internal/pkg/agent/application/info/agent_id.go#L103)
+- [Enrollment reloads an existing daemon](https://github.com/elastic/elastic-agent/blob/v9.5.6/internal/pkg/agent/cmd/enroll_cmd.go#L295)
+- [Successful enrollment triggers native restart](https://github.com/elastic/elastic-agent/blob/v9.5.6/internal/pkg/agent/cmd/enroll_cmd.go#L200)
 
 ## Native Fleet Server policy ownership
 

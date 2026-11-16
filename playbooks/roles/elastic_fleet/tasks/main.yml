@@ -98,6 +98,19 @@
               - __elastic_fleet_setup.json.isInitialized is true
               - __elastic_fleet_setup.json.nonFatalErrors | length == 0
 
+        - name: Elastic Fleet | Inspect any remote registration for the pristine standalone Agent identity
+          ansible.builtin.uri:
+            url: "{{ __elastic_fleet_kibana_url }}/api/fleet/agents/{{ __elastic_fleet_initial_native_status.info.id }}"
+            status_code: [200, 404]
+          register: __elastic_fleet_initial_remote_registration
+          when: __elastic_fleet_pristine_standalone
+
+        - name: Elastic Fleet | Refuse to adopt a standalone identity already registered in Fleet
+          ansible.builtin.assert:
+            that: __elastic_fleet_initial_remote_registration.status == 404
+            fail_msg: This native standalone identity already exists in Fleet; inspect its ownership before initial enrollment.
+          when: __elastic_fleet_pristine_standalone
+
         - name: Elastic Fleet | Read agents on the exact reserved policy before changing its configuration
           ansible.builtin.uri:
             url: >-

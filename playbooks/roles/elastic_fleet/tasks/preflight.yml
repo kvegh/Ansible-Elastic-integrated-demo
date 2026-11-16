@@ -14,6 +14,7 @@
     __elastic_fleet_token_stat: "{{ __elastic_fleet_local_files.results[0].stat }}"
     __elastic_fleet_enrollment_stat: "{{ __elastic_fleet_local_files.results[1].stat }}"
     __elastic_fleet_encrypted_config_stat: "{{ __elastic_fleet_local_files.results[2].stat }}"
+    __elastic_fleet_pristine_standalone: false
 
 - name: Elastic Fleet | Reject symlinks or unowned bootstrap files
   ansible.builtin.assert:
@@ -25,12 +26,94 @@
   loop:
     - "{{ __elastic_fleet_token_stat }}"
     - "{{ __elastic_fleet_enrollment_stat }}"
+    - "{{ __elastic_fleet_encrypted_config_stat }}"
   when: item.exists
+
+# Native RPM postinstall starts Agent; standalone identity creation also writes fleet.enc.
+# Preserve that file and prove unused factory configuration rather than treating existence as enrollment.
+# Rationale: ../../../../docs/elastic-fleet.md#pristine-rpm-standalone-state
+- name: Elastic Fleet | Inspect package-started standalone state without adopting custom configuration
+  when:
+    - __elastic_fleet_encrypted_config_stat.exists
+    - not __elastic_fleet_enrollment_stat.exists
+  block:
+    - name: Elastic Fleet | Read the main configuration ownership and SHA256 without following links
+      ansible.builtin.stat:
+        path: /etc/elastic-agent/elastic-agent.yml
+        follow: false
+        get_checksum: true
+        checksum_algorithm: sha256
+      register: __elastic_fleet_main_config
+
+    # stat supplies the actual digest; only RPM can supply this installed package's expected file digest.
+    # Rationale: ../../../../docs/elastic-fleet.md#pristine-rpm-standalone-state
+    - name: Elastic Fleet | Read the installed RPM version and original file-digest manifest
+      ansible.builtin.command:
+        argv:
+          - rpm
+          - -q
+          - --queryformat
+          - "%{VERSION}\n%{FILEDIGESTALGO}\n[%{FILENAMES} %{FILEDIGESTS}\n]"
+          - elastic-agent
+      register: __elastic_fleet_rpm_manifest
+      changed_when: false
+
+    - name: Elastic Fleet | Select the exact main-config RPM manifest entry
+      ansible.builtin.set_fact:
+        __elastic_fleet_main_config_manifest_entries: >-
+          {{ __elastic_fleet_rpm_manifest.stdout_lines[2:] |
+             select('match', '^/etc/elastic-agent/elastic-agent[.]yml ') | list }}
+
+    - name: Elastic Fleet | Require the pinned native RPM and one SHA256 configuration record
+      ansible.builtin.assert:
+        that:
+          - __elastic_fleet_rpm_manifest.stdout_lines | length >= 3
+          - __elastic_fleet_rpm_manifest.stdout_lines[0] == elastic_demo.stack_version
+          - __elastic_fleet_rpm_manifest.stdout_lines[1] == '8'
+          - __elastic_fleet_main_config_manifest_entries | length == 1
+          - __elastic_fleet_main_config_manifest_entries[0].split() | length == 2
+          - __elastic_fleet_main_config_manifest_entries[0].split()[1] is match('^[0-9a-f]{64}$')
+        fail_msg: Initial enrollment requires the exact installed RPM and its original SHA256 main-configuration record.
+
+    # Native JSON reports real managed mode; degraded standalone status legitimately exits 1.
+    # Rationale: ../../../../docs/elastic-fleet.md#pristine-rpm-standalone-state
+    - name: Elastic Fleet | Read native Agent status without restarting or changing its configuration
+      ansible.builtin.command:
+        argv: [/usr/bin/elastic-agent, status, --output, json]
+      register: __elastic_fleet_initial_agent_status
+      changed_when: false
+      failed_when: __elastic_fleet_initial_agent_status.rc not in [0, 1]
+
+    - name: Elastic Fleet | Bind the observed native Agent status
+      ansible.builtin.set_fact:
+        __elastic_fleet_initial_native_status: "{{ __elastic_fleet_initial_agent_status.stdout | from_json }}"
+
+    - name: Elastic Fleet | Require pristine unmanaged state before accepting package-created encrypted identity
+      ansible.builtin.assert:
+        that:
+          - not __elastic_fleet_token_stat.exists
+          - not __elastic_fleet_enrollment_stat.exists
+          - __elastic_fleet_main_config.stat.isreg | default(false)
+          - not (__elastic_fleet_main_config.stat.islnk | default(false))
+          - __elastic_fleet_main_config.stat.uid == 0
+          - __elastic_fleet_main_config.stat.mode == '0600'
+          - __elastic_fleet_main_config.stat.checksum == __elastic_fleet_main_config_manifest_entries[0].split()[1]
+          - __elastic_fleet_initial_agent_status.rc in [0, 1]
+          - __elastic_fleet_initial_native_status.info.is_managed is false
+          - __elastic_fleet_initial_native_status.info.version == elastic_demo.stack_version
+          - __elastic_fleet_initial_native_status.info.id is match('^[A-Za-z0-9_-]+$')
+        fail_msg: Encrypted identity without role intent is accepted only for a pristine RPM configuration and proven unmanaged native Agent.
+
+    - name: Elastic Fleet | Record the proven pristine standalone path for the remote identity guard
+      ansible.builtin.set_fact:
+        __elastic_fleet_pristine_standalone: true
 
 - name: Elastic Fleet | Refuse an existing enrollment without this role's ownership record
   ansible.builtin.assert:
     that:
-      - not __elastic_fleet_encrypted_config_stat.exists or __elastic_fleet_enrollment_stat.exists
+      - >-
+        not __elastic_fleet_encrypted_config_stat.exists or __elastic_fleet_enrollment_stat.exists or
+        (__elastic_fleet_pristine_standalone | default(false))
       - not __elastic_fleet_enrollment_stat.exists or __elastic_fleet_encrypted_config_stat.exists
     fail_msg: Local enrollment is incomplete or belongs to another owner; inspect its native outcome before any re-enrollment.
 

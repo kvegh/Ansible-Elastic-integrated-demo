@@ -118,6 +118,79 @@ class DeploymentContractTests(unittest.TestCase):
                 result = self.run_task({"name": "Replay native Fleet child ownership", "block": tasks}, variables)
                 self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
 
+    def test_pristine_rpm_standalone_accepts_native_identity_and_rejects_drift(self):
+        filename = "roles/elastic_fleet/tasks/preflight.yml"
+        names = ["Select the exact main-config RPM manifest entry",
+                 "Require the pinned native RPM and one SHA256 configuration record",
+                 "Require pristine unmanaged state before accepting package-created encrypted identity",
+                 "Record the proven pristine standalone path for the remote identity guard",
+                 "Refuse an existing enrollment without this role's ownership record"]
+        tasks = [self.task(filename, "Elastic Fleet | " + name) for name in names]
+        tasks.append(self.task("roles/elastic_fleet/tasks/main.yml",
+                               "Elastic Fleet | Refuse to adopt a standalone identity already registered in Fleet"))
+        digest = "a" * 64
+        valid = {
+            "elastic_demo": {"stack_version": "9.5.6"},
+            "__elastic_fleet_token_stat": {"exists": False},
+            "__elastic_fleet_enrollment_stat": {"exists": False},
+            "__elastic_fleet_encrypted_config_stat": {"exists": True},
+            "__elastic_fleet_pristine_standalone": False,
+            "__elastic_fleet_main_config": {"stat": {"isreg": True, "islnk": False,
+                "uid": 0, "mode": "0600", "checksum": digest}},
+            "__elastic_fleet_rpm_manifest": {"stdout_lines": ["9.5.6", "8",
+                "/etc/elastic-agent/elastic-agent.yml " + digest]},
+            "__elastic_fleet_initial_agent_status": {"rc": 1},
+            "__elastic_fleet_initial_native_status": {"info": {
+                "is_managed": False, "version": "9.5.6", "id": "native-standalone-agent"}},
+            "__elastic_fleet_initial_remote_registration": {"status": 404},
+        }
+        cases = [("pristine degraded standalone", valid, 0)]
+        for name, key, value in [
+                ("managed", "is_managed", True), ("wrong native version", "version", "9.5.5"),
+                ("missing identity", "id", "")]:
+            changed = copy.deepcopy(valid)
+            changed["__elastic_fleet_initial_native_status"]["info"][key] = value
+            cases.append((name, changed, 2))
+        for name, key, value in [("wrong digest", "checksum", "b" * 64),
+                                 ("symlink config", "islnk", True)]:
+            changed = copy.deepcopy(valid)
+            changed["__elastic_fleet_main_config"]["stat"][key] = value
+            cases.append((name, changed, 2))
+        changed = copy.deepcopy(valid)
+        changed["__elastic_fleet_rpm_manifest"]["stdout_lines"][1] = "1"
+        cases.append(("wrong manifest algorithm", changed, 2))
+        changed = copy.deepcopy(valid)
+        changed["__elastic_fleet_token_stat"]["exists"] = True
+        cases.append(("partial role token", changed, 2))
+        changed = copy.deepcopy(valid)
+        changed["__elastic_fleet_initial_remote_registration"]["status"] = 200
+        cases.append(("registered native identity", changed, 2))
+        for name, variables, expected in cases:
+            with self.subTest(case=name):
+                result = self.run_task({"name": "Replay actual pristine native state guards", "block": tasks}, variables)
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+
+    def test_owned_native_pair_preserves_immutable_intent_and_rejects_missing_records(self):
+        filename = "roles/elastic_fleet/tasks/preflight.yml"
+        pair = self.task(filename, "Elastic Fleet | Refuse an existing enrollment without this role's ownership record")
+        immutable = self.task(filename, "Elastic Fleet | Preserve the previous enrollment instead of forcing a replacement")
+        cases = [("owned paired state", True, True, "same", 0),
+                 ("fresh absent state", False, False, "same", 0),
+                 ("missing ownership record", True, False, "same", 2),
+                 ("missing native encrypted state", False, True, "same", 2),
+                 ("changed recorded intent", True, True, "different", 2)]
+        for name, encrypted, recorded, previous, expected in cases:
+            with self.subTest(case=name):
+                variables = {
+                    "__elastic_fleet_encrypted_config_stat": {"exists": encrypted},
+                    "__elastic_fleet_enrollment_stat": {"exists": recorded},
+                    "__elastic_fleet_pristine_standalone": False,
+                    "__elastic_fleet_prior_enrollment": {"intent": {"identity": previous}},
+                    "__elastic_fleet_enrollment_intent": {"identity": "same"},
+                }
+                result = self.run_task({"name": "Replay actual paired-state guards", "block": [pair, immutable]}, variables)
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+
     def test_live_metadata_cannot_replace_urls_or_credentials(self):
         task = self.task("verify.yml", "Restrict live deployment metadata to trust and exact telemetry identity")
         for metadata, expected in [({"tls_ca_pem": "public-ca", "expected_agent_ids": ["demo-agent"]}, 0),

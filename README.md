@@ -97,3 +97,9 @@ are justified in [implementation rationale](docs/implementation-decisions.md#dis
 The functional-check documentation explains the narrow supported-API calls.
 No installer wrapper, separate service, new storage manager or testing framework
 is introduced. Actual execution and full formal review remain distinct.
+
+
+Version 0.1.2 additionally distinguishes the RPM-started standalone Agent from
+Fleet enrollment. Existing encrypted configuration alone is insufficient proof
+of enrollment; pristine native state and remote ownership checks must pass before
+continuing. Complete deployment and functional acceptance remain unverified.

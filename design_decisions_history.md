@@ -183,3 +183,46 @@ collector is not part of the selected baseline.
   submodule, event transport or additional component is selected.
 - Activation and complete import/repeat-readback remain pending. Public contract
   documentation now reflects this approved scope rather than earlier proposals.
+
+
+## 2026-11-15 — Distinguish standalone startup from Fleet enrollment
+
+- Fleet policy correction implementation:
+  2ca4f51522696bee76fb820df7b7b84b1a2113c7 (0.1.1), published and paired with
+  encrypted configuration. The corrected native run failed before reaching that
+  policy stage, at 20:24:20 UTC, when the ownership guard treated encrypted Agent
+  configuration existence as Fleet enrollment.
+- The earlier diagnostic inspected the wrong native path and did not prove the
+  actual file absent. Corrected read-only checks find a root-owned encrypted
+  configuration created during the first RPM installation, no project enrollment
+  or token record, and an active exact-version native Agent reporting
+  `is_managed: false`. Its main configuration matches the installed RPM digest.
+- Exact vendor release source confirms RPM installation starts the standalone
+  Agent and standalone startup writes its identity into encrypted configuration.
+  That file's existence alone does not establish Fleet enrollment. The scoped
+  correction must require the pristine exact-version unmanaged state, preserve
+  existing managed ownership/intent checks and verify no Fleet registration
+  before first enrollment. Never delete, reset or force an unknown enrollment.
+- Working 0.1.2 also folds two original maintenance YAML lines found by broader
+  lint. Full parsed structure is unchanged except those strings; generic cases,
+  including quoted trust paths, render both values byte-identically. This causes
+  no disk growth, VM restart or maintenance job execution.
+- New guard implementation, relevant tests and full live application acceptance
+  remain pending here. Raw identities, digests and native results stay only in
+  the encrypted companion. An unrelated GitHub repository-access action blocks
+  CaC restoration; it does not authorize credential rotation or a new source.
+
+- Main-agent direct validation passed target Core 2.20.10 syntax, assertion-type
+  scan and both new regression methods (fourteen cases; 17.309 seconds) at
+  21:01:57–21:02:19 UTC. Delayed delegated validation remains unconfirmed; it
+  is not counted as a pass. Full lint identified decoded tab characters in the
+  RPM query, so use a plain-space manifest delimiter for the fixed no-space
+  configuration path and ordinary split parsing. Relevant checks are rerun for
+  that narrow correction before publication; no rule suppression is introduced.
+
+- Final corrected source passed Core 2.20.10 syntax, all assertion-type checks,
+  fourteen new guard cases (19.620 seconds), and strict offline production lint
+  across all twenty-seven files with zero failures/warnings. Actual execution
+  was 2026-11-16 04:17:23–04:18:05 UTC; earlier submission is not execution time.
+  Independent retained worker results also passed the two new methods.
+  Complete application acceptance remains pending until a real deployment.
