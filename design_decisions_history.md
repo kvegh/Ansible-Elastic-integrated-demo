@@ -226,3 +226,24 @@ collector is not part of the selected baseline.
   was 2026-11-16 04:17:23–04:18:05 UTC; earlier submission is not execution time.
   Independent retained worker results also passed the two new methods.
   Complete application acceptance remains pending until a real deployment.
+
+
+## 2026-11-16 — Match the exact System package stream contract
+
+- Prior implementation: 192722164624476100d89ff637054b681d0b061c (0.1.2).
+  Live execution passed both earlier guards, reused its Fleet Server integration
+  and created the aligned APM policy. It failed System policy creation with HTTP
+  400 at 04:22:47 UTC; no enrollment or UI acceptance was reached.
+- Read-only server error identifies unsupported system.process_summary. Actual
+  installed System 3.5.0 metadata requires system.process.summary. The complete
+  thirteen-stream metric set and configured variables were checked against that
+  exact contract; existing APM policy is present and System policy is absent.
+- Version 0.1.3 changes that single key and adds a vendor-contract regression
+  covering the complete selected stream set and minimal enabled metrics.
+  No policy deletion, reset, extra component or security relaxation is selected.
+  Corrected deployed acceptance remains pending; implementation hash follows.
+
+- The exact registry archive independently confirms this as the only System/APM
+  configured-field mismatch: https://epr.elastic.co/epr/system/system-3.5.0.zip.
+  The focused contract regression passed in 0.012 seconds; full strict offline
+  production lint passed all twenty-seven files with zero failures/warnings.

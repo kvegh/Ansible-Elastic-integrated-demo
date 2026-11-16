@@ -112,7 +112,7 @@
                   enabled: false
                 system.process:
                   enabled: false
-                system.process_summary:
+                system.process.summary:
                   enabled: false
                 system.socket_summary:
                   enabled: false

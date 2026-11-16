@@ -103,3 +103,7 @@ Version 0.1.2 additionally distinguishes the RPM-started standalone Agent from
 Fleet enrollment. Existing encrypted configuration alone is insufficient proof
 of enrollment; pristine native state and remote ownership checks must pass before
 continuing. Complete deployment and functional acceptance remain unverified.
+
+Version 0.1.3 corrects the pinned System package process-summary dataset name.
+The live third run passed prior guards and created APM before the System package
+rejected the old underscore spelling. Full application acceptance remains pending.

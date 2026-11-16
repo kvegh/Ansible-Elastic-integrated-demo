@@ -191,6 +191,19 @@ class DeploymentContractTests(unittest.TestCase):
                 result = self.run_task({"name": "Replay actual paired-state guards", "block": [pair, immutable]}, variables)
                 self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
 
+    def test_system_stream_names_match_pinned_registry_contract(self):
+        # System 3.5.0 metadata from the installed EPM API; process.summary uses a dot.
+        task = self.task("roles/elastic_fleet/tasks/policies.yml",
+                         "Elastic Fleet | Define only Fleet Server, APM intake and bounded Linux telemetry")
+        resources = task["ansible.builtin.set_fact"]["__elastic_fleet_package_resources"]
+        body = next(r["body"] for r in resources if r["id"] == "elastic-demo-system-integration")
+        streams = body["inputs"]["system-system/metrics"]["streams"]
+        datasets = {"core", "cpu", "diskio", "filesystem", "fsstat", "load", "memory",
+                    "network", "ntp", "process", "process.summary", "socket_summary", "uptime"}
+        self.assertEqual(set(streams), {"system." + name for name in datasets})
+        self.assertEqual({name for name, config in streams.items() if config["enabled"]},
+                         {"system.cpu", "system.memory", "system.load", "system.uptime"})
+
     def test_live_metadata_cannot_replace_urls_or_credentials(self):
         task = self.task("verify.yml", "Restrict live deployment metadata to trust and exact telemetry identity")
         for metadata, expected in [({"tls_ca_pem": "public-ca", "expected_agent_ids": ["demo-agent"]}, 0),
