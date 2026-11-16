@@ -305,3 +305,24 @@ collector is not part of the selected baseline.
   preserves the full failed run and diagnostic evidence without changing runtime
   credentials or enrollment. This documentation does not establish live release
   acceptance or successful CaC restoration.
+
+## 2026-11-16T05:12:19.831087+00:00 — Allow general internal HTTPS to the existing proxy
+
+- User approval: “yeah then unblock that firewall access generally and update
+  CaC”. This supersedes the pending controller-only exception proposal. Permit
+  HTTPS for the existing internal bridge zone in runtime and persistent state,
+  preserving the public zone, other services, rules and default rejection.
+- Store the selected existing internal zone only in the protected companion
+  runtime/CaC. Bind it to the existing proxy private interface before changing
+  the service grant. Keep full TLS verification and existing credentials. No
+  firewall disabling, additional public listener or backend exposure is selected.
+- Version 0.1.6 prepares the change. Native application, repeat behavior and
+  complete functional acceptance require the subsequent normal AAP job evidence.
+  The separate private repository-reader visibility question remains unresolved.
+
+Qualification of this change: existing Core 2.20.10 syntax plus three focused
+checks passed on 2026-11-16 05:21:29–05:21:58 UTC. Negative zone-binding and
+existing public-grant cases passed; full strict production lint reported zero
+failures/warnings. Independent read-only review found no firewall logic blocker;
+its one environment-specific documentation term was corrected. Actual native
+application and repeat verification remain pending.

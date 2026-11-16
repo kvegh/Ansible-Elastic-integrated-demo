@@ -60,7 +60,7 @@ shared importer. Initial bootstrap and full automatic restoration must not be
 claimed until tested. [Functional verification](docs/functional-verification.md)
 documents the repeatable command, protected inputs and actual tested scope.
 
-## Current checkpoint — source 0.1.5
+## Current checkpoint — source 0.1.6
 
 Native RPM services and Fleet enrollment are healthy. The nginx route and
 certificate setup completed. A login GET from the proxy validated the public
@@ -68,8 +68,9 @@ TLS certificate, returned HTTP 200 and contained the Kibana HTML marker.
 
 The complete AAP acceptance run stopped at its first public HTTPS login check:
 the controller's TCP connection was refused because the existing proxy input
-firewall rejects that source. A scoped internal HTTPS grant is proposed and
-awaits the user's decision. It is not an approved or applied change.
+firewall rejects that source. The user approved general HTTPS access from the existing internal networks.
+Version 0.1.6 records that grant in the access playbook and protected CaC values;
+actual application and complete functional acceptance remain pending.
 
 Separate read-only backend checks found a non-red Elasticsearch cluster and
 recent logs, metrics and security-relevant telemetry. Complete index write/search,

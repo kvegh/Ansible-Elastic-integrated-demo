@@ -2,7 +2,7 @@
 
 `playbooks/verify.yml` exercises deployed HTTPS interfaces from the Ansible
 controller or execution environment. It selects no installation method,
-network architecture, DNS name or credential store. The current source is 0.1.5;
+network architecture, DNS name or credential store. The current source is 0.1.6;
 services are deployed, while complete functional acceptance remains pending.
 
 ## Current verification checkpoint
@@ -10,8 +10,9 @@ services are deployed, while complete functional acceptance remains pending.
 Native RPM services and Fleet enrollment are healthy, and nginx/certificate
 setup completed. The complete AAP run stopped at its first public HTTPS login
 check: the existing proxy input firewall rejects the controller source, causing
-a refused TCP connection. A scoped internal HTTPS grant is proposed and awaiting
-the user's decision; it has not been approved or applied.
+a refused TCP connection. The user has now approved general internal HTTPS
+access. Source 0.1.6 and protected CaC record that grant; native application and
+complete acceptance are pending.
 
 The same login GET from the proxy validated TLS, returned HTTP 200 and contained
 the Kibana HTML marker. Separate supported read-only backend checks found a

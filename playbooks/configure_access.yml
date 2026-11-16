@@ -49,6 +49,7 @@
       ansible.builtin.assert:
         that:
           - __elastic_access.enabled is sameas true
+          - __elastic_access.internal_firewall_zone is match('^[A-Za-z0-9_-]+$')
           - __elastic_access.proxy_inventory_host == query('ansible.builtin.inventory_hostnames', 'hypervisor')[0]
           - __elastic_access.machine_id == __elastic_access_pin.machine_id
           - __elastic_access.machine_id is match('^[0-9a-f]{32}$')
@@ -102,6 +103,7 @@
     __elastic_access_vhost_file: /etc/nginx/conf.d/elastic-demo.conf
     __elastic_access_ca_file: /etc/nginx/elastic-demo-upstream-ca.pem
     __elastic_access_marker: '# Managed by Ansible Elastic Integrated Demo access.'
+    __elastic_access_internal_https_rule: 'rule service name="https" accept'
     __elastic_access_certificate_dir: "/etc/letsencrypt/live/{{ __elastic_access.hostname }}"
     __elastic_access_http: |
       {{ __elastic_access_marker }}
@@ -246,13 +248,71 @@
           failed_when: __elastic_access_https_rules.rc not in [0, 1]
           register: __elastic_access_https_rules
 
-        - name: Refuse to add or change proxy firewall rules
+        - name: Require existing public HTTPS access without changing its rules
           ansible.builtin.assert:
             that:
               - __elastic_access_https_rules.results[:3] | selectattr('rc', 'equalto', 0) | list | length > 0
               - __elastic_access_https_rules.results[3:] | selectattr('rc', 'equalto', 0) | list | length > 0
             fail_msg: Existing runtime and persistent HTTPS access must already be prepared for the proxy.
             quiet: true
+
+        - name: Select the existing private interface by its protected proxy address
+          ansible.builtin.set_fact:
+            __elastic_access_private_interfaces: >-
+              {{ ansible_facts.interfaces | map('extract', ansible_facts) |
+                 selectattr('ipv4', 'defined') |
+                 selectattr('ipv4.address', 'equalto', __elastic_access_pin.address) |
+                 map(attribute='device') | list }}
+
+        - name: Require one private proxy interface distinct from its public interface
+          ansible.builtin.assert:
+            that:
+              - __elastic_access_private_interfaces | length == 1
+              - __elastic_access_private_interfaces[0] != ansible_facts.default_ipv4.interface
+            quiet: true
+
+        - name: Read the existing private interface firewall zone
+          ansible.builtin.command:
+            argv: [firewall-cmd, "--get-zone-of-interface={{ __elastic_access_private_interfaces[0] }}"]
+          changed_when: false
+          register: __elastic_access_private_zone
+
+        - name: Bind the approved HTTPS grant to the existing internal zone
+          ansible.builtin.assert:
+            that:
+              - __elastic_access_private_zone.stdout | trim == __elastic_access.internal_firewall_zone
+              - __elastic_access.internal_firewall_zone != __elastic_access_firewall_zone
+            fail_msg: The protected internal zone must match the private interface and differ from the public zone.
+            quiet: true
+
+        # Existing EE has no qualified firewall collection; reuse the native CLI.
+        # Scope and content gap: ../docs/elastic-access.md#internal-https-grant
+        - name: Query the approved internal HTTPS rule in runtime and persistent state
+          ansible.builtin.command:
+            argv: >-
+              {{ ['firewall-cmd', '--zone=' ~ __elastic_access.internal_firewall_zone] +
+                 item + ['--query-rich-rule=' ~ __elastic_access_internal_https_rule] }}
+          loop: [[], [--permanent]]
+          changed_when: false
+          failed_when: __elastic_access_internal_queries.rc not in [0, 1]
+          register: __elastic_access_internal_queries
+
+        - name: Add only missing instances of the approved internal HTTPS rule
+          ansible.builtin.command:
+            argv: >-
+              {{ ['firewall-cmd', '--zone=' ~ __elastic_access.internal_firewall_zone] +
+                 item.item + ['--add-rich-rule=' ~ __elastic_access_internal_https_rule] }}
+          loop: "{{ __elastic_access_internal_queries.results }}"
+          when: item.rc == 1
+          changed_when: true
+
+        - name: Verify the internal HTTPS rule exists in runtime and persistent state
+          ansible.builtin.command:
+            argv: >-
+              {{ ['firewall-cmd', '--zone=' ~ __elastic_access.internal_firewall_zone] +
+                 item + ['--query-rich-rule=' ~ __elastic_access_internal_https_rule] }}
+          loop: [[], [--permanent]]
+          changed_when: false
 
         - name: Inspect the existing shared ACME webroot
           ansible.builtin.stat:

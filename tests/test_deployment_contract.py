@@ -218,13 +218,28 @@ class DeploymentContractTests(unittest.TestCase):
             self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
 
     def test_public_https_accepts_existing_rich_rules_and_rejects_partial_access(self):
-        task = self.task("configure_access.yml", "Refuse to add or change proxy firewall rules")
+        task = self.task("configure_access.yml", "Require existing public HTTPS access without changing its rules")
         for codes, expected in [([0, 1, 1, 0, 1, 1], 0), ([1, 0, 1, 1, 0, 1], 0),
                                 ([1, 1, 0, 1, 1, 0], 0), ([1, 1, 0, 1, 1, 1], 2),
                                 ([1, 1, 1, 1, 1, 0], 2), ([1, 1, 1, 1, 1, 1], 2)]:
             result = self.run_task(task, {"__elastic_access_https_rules": {
                 "results": [{"rc": code} for code in codes]}})
             self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+
+    def test_internal_https_grant_refuses_wrong_or_public_zone(self):
+        task = self.task("configure_access.yml", "Bind the approved HTTPS grant to the existing internal zone")
+        for expected, actual, public, result_code in [
+            ("inside", "inside\n", "public", 0),
+            ("inside", "other", "public", 2),
+            ("public", "public", "public", 2),
+        ]:
+            with self.subTest(expected=expected, actual=actual, public=public):
+                result = self.run_task(task, {
+                    "__elastic_access": {"internal_firewall_zone": expected},
+                    "__elastic_access_private_zone": {"stdout": actual},
+                    "__elastic_access_firewall_zone": public,
+                })
+                self.assertEqual(result.returncode, result_code, result.stdout + result.stderr)
 
     def test_live_metadata_cannot_replace_urls_or_credentials(self):
         task = self.task("verify.yml", "Restrict live deployment metadata to trust and exact telemetry identity")

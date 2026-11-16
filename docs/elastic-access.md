@@ -4,8 +4,8 @@ The approved access stage publishes only Kibana through the existing nginx
 proxy. Elasticsearch, Fleet Server and APM retain private interfaces. The
 proxy connects directly to Kibana's private IPv4 on HTTPS port 5601 and verifies
 its certificate against the core deployment CA with the protected internal TLS
-name. No internal DNS, libvirt, firewall, shared nginx/authentication settings,
-packages or ACME registration is changed.
+name. The approved internal HTTPS grant is described below; shared nginx/authentication
+settings, packages and ACME registration retain their existing ownership.
 
 `playbooks/configure_access.yml` can be imported after successful core and Fleet
 plays in the same full AAP job. The existing dynamic `elastic_demo_guest` group
@@ -14,8 +14,9 @@ precedence. A standalone access job instead needs the durable protected CA and
 existing `elastic_vm_expected.address` in that protected file (or its existing
 explicit saved launch binding). It must use the same existing Machine,
 runtime Vault and configuration-file credential types as the approved target.
-This playbook has not been run against a live proxy; deployed access remains
-unverified until normal AAP execution and actual UI functional testing pass.
+The nginx and certificate stages have run successfully. Complete acceptance
+previously stopped at the controller-to-proxy firewall boundary; the newly
+approved internal grant still requires normal AAP application and verification.
 
 ## Protected input contract
 
@@ -29,6 +30,7 @@ below are generic placeholders and must be sealed as whole-file Vault data:
 elastic_demo:
   access:
     enabled: true
+    internal_firewall_zone: PROTECTED_EXISTING_INTERNAL_ZONE
     proxy_inventory_host: EXISTING_PROXY_INVENTORY_HOST
     machine_id: PROTECTED_PROXY_MACHINE_ID
     hostname: kibana.example.invalid
@@ -154,3 +156,22 @@ its challenge subdirectories. See the [built-in getent documentation](https://do
 The upstream OpenSSL check uses explicit EOF handling and quit input so it
 finishes after verification rather than waiting interactively. The trusted CA,
 exact TLS name and verification-error failure flags remain mandatory.
+
+## Internal HTTPS grant
+
+The user approved general HTTPS access from the existing internal networks.
+The protected `internal_firewall_zone` must match the interface carrying the
+existing private proxy address and differ from the public interface's zone.
+Add only the missing runtime and permanent instances of the exact rich rule
+`rule service name="https" accept`. Preserve other rules, public grants, default
+rejection, zone bindings and services. No firewall reload or DNS change is needed.
+The grant is independent of the owned-vhost rollback and remains desired even
+if a later application test fails.
+
+The inspected existing Core 2.20 execution image has neither the certified
+`redhat.rhel_system_roles` collection nor `ansible.posix` installed. Introducing
+content would require a separately qualified dependency/EE change. The existing
+`firewall-cmd` provides this narrow operation without installation: query both
+states, add only missing rules, and read back both states. The existing host's
+owning CaC uses the same additional-zone rich-rule representation, so the same
+rule is captured there for a fresh rebuild. No custom helper is introduced.
