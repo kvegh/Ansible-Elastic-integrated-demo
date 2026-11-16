@@ -107,3 +107,8 @@ continuing. Complete deployment and functional acceptance remain unverified.
 Version 0.1.3 corrects the pinned System package process-summary dataset name.
 The live third run passed prior guards and created APM before the System package
 rejected the old underscore spelling. Full application acceptance remains pending.
+
+Version 0.1.4 uses the existing DNS-only getent resolver, recognizes the existing
+unrestricted IPv4 HTTPS rich rule, and requires the durable ACME webroot parent
+rather than Certbot-owned temporary challenge directories. It installs no proxy
+package and changes no firewall or existing renewal configuration.

@@ -247,3 +247,27 @@ collector is not part of the selected baseline.
   configured-field mismatch: https://epr.elastic.co/epr/system/system-3.5.0.zip.
   The focused contract regression passed in 0.012 seconds; full strict offline
   production lint passed all twenty-seven files with zero failures/warnings.
+
+
+## 2026-11-16 — Reuse actual proxy prerequisites
+
+- System correction implementation: 6c2d9b75f4cc71d451d18b0d6527a438fb0dbe71.
+  Its deployment completed native software enrollment and healthy components,
+  then stopped before public route changes because bind-utils is absent.
+- Read-only native checks establish existing nginx/Certbot/OpenSSL, production
+  account and active renewal timer. HTTPS is already accepted in runtime and
+  persistent state through an unrestricted IPv4 rich rule. The shared webroot
+  parent exists; Certbot temporary challenge children do not.
+- Use built-in getent with service=dns, bypassing hosts-file lookup, and require
+  exactly the intended IPv4 address. Recognize the existing HTTPS rich rule in
+  addition to existing service/port forms, preserving runtime/persistent checks.
+  Require the durable webroot parent; Certbot manages its temporary children.
+- Version 0.1.4 adds actual-predicate DNS and firewall regressions. This routine
+  compatibility correction installs nothing and changes no firewall policy,
+  account, renewal mechanism or unrelated virtual host. Full UI/ingestion
+  acceptance remains pending.
+
+- Target Core 2.20 syntax and ten DNS/firewall predicate cases passed (12.140s).
+  Full strict offline production lint passed twenty-seven files with zero
+  failures/warnings at 2026-11-16 04:40:34–04:41:06 UTC. No live proxy change
+  is implied by those checks; the next AAP execution establishes that outcome.

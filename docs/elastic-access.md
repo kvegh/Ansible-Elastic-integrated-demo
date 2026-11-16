@@ -141,3 +141,12 @@ a failed reload must remain part of that same recovery path. A narrowly marked
 lint findings or make failures successful. Three actual built-in rollback
 fixtures covered existing/new file combinations and unrelated-file preservation.
 The final HTTPS reload is likewise conditional on owned configuration changes.
+
+
+The proxy prerequisite check uses the existing DNS-only NSS service through
+`ansible.builtin.getent` (`database: ahostsv4`, `service: dns`), so local hosts
+entries cannot satisfy the public-address check. No bind-utils dependency is
+required. Existing runtime and persistent HTTPS acceptance can use a service,
+port or unrestricted IPv4 TCP/443 rich rule; the playbook changes none of them.
+Only the existing webroot parent is required because Certbot creates/removes
+its challenge subdirectories. See the [built-in getent documentation](https://docs.ansible.com/projects/ansible/latest/collections/ansible/builtin/getent_module.html).

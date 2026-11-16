@@ -204,6 +204,28 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertEqual({name for name, config in streams.items() if config["enabled"]},
                          {"system.cpu", "system.memory", "system.load", "system.uptime"})
 
+    def test_public_dns_uses_dns_only_and_requires_the_exact_address(self):
+        task = self.task("configure_access.yml", "Require exact public DNS before certificate issuance")
+        self.assertEqual(task["ansible.builtin.getent"]["service"], "dns")
+        self.assertEqual(task["ansible.builtin.getent"]["database"], "ahostsv4")
+        check = {"name": "Replay actual DNS predicate", "ansible.builtin.assert": {"that": task["until"]}}
+        for records, expected in [({"198.51.100.20": ["STREAM", "demo.example.invalid"]}, 0),
+                                  ({"198.51.100.21": []}, 2),
+                                  ({"198.51.100.20": [], "198.51.100.21": []}, 2),
+                                  ({"demo.example.invalid": None}, 2)]:
+            result = self.run_task(check, {"__elastic_access": {"public_ipv4": "198.51.100.20"},
+                "__elastic_access_public_dns": {"ansible_facts": {"getent_ahostsv4": records}}})
+            self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+
+    def test_public_https_accepts_existing_rich_rules_and_rejects_partial_access(self):
+        task = self.task("configure_access.yml", "Refuse to add or change proxy firewall rules")
+        for codes, expected in [([0, 1, 1, 0, 1, 1], 0), ([1, 0, 1, 1, 0, 1], 0),
+                                ([1, 1, 0, 1, 1, 0], 0), ([1, 1, 0, 1, 1, 1], 2),
+                                ([1, 1, 1, 1, 1, 0], 2), ([1, 1, 1, 1, 1, 1], 2)]:
+            result = self.run_task(task, {"__elastic_access_https_rules": {
+                "results": [{"rc": code} for code in codes]}})
+            self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+
     def test_live_metadata_cannot_replace_urls_or_credentials(self):
         task = self.task("verify.yml", "Restrict live deployment metadata to trust and exact telemetry identity")
         for metadata, expected in [({"tls_ca_pem": "public-ca", "expected_agent_ids": ["demo-agent"]}, 0),

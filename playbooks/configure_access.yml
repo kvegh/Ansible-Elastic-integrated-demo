@@ -198,9 +198,9 @@
               - __elastic_access_machine_id.stdout | trim == __elastic_access.machine_id
             quiet: true
 
-        - name: Require the existing nginx DNS and certificate tools without installing packages
+        - name: Require the existing nginx and certificate tools without installing packages
           ansible.builtin.command:
-            argv: [rpm, -q, nginx, certbot, bind-utils, openssl]
+            argv: [rpm, -q, nginx, certbot, openssl]
           changed_when: false
 
         - name: Read the proxy's current public interface
@@ -238,8 +238,10 @@
           loop:
             - [--query-service=https]
             - [--query-port=443/tcp]
+            - ['--query-rich-rule=rule family="ipv4" port port="443" protocol="tcp" accept']
             - [--permanent, --query-service=https]
             - [--permanent, --query-port=443/tcp]
+            - [--permanent, '--query-rich-rule=rule family="ipv4" port port="443" protocol="tcp" accept']
           changed_when: false
           failed_when: __elastic_access_https_rules.rc not in [0, 1]
           register: __elastic_access_https_rules
@@ -247,14 +249,14 @@
         - name: Refuse to add or change proxy firewall rules
           ansible.builtin.assert:
             that:
-              - __elastic_access_https_rules.results[:2] | selectattr('rc', 'equalto', 0) | list | length > 0
-              - __elastic_access_https_rules.results[2:] | selectattr('rc', 'equalto', 0) | list | length > 0
+              - __elastic_access_https_rules.results[:3] | selectattr('rc', 'equalto', 0) | list | length > 0
+              - __elastic_access_https_rules.results[3:] | selectattr('rc', 'equalto', 0) | list | length > 0
             fail_msg: Existing runtime and persistent HTTPS access must already be prepared for the proxy.
             quiet: true
 
         - name: Inspect the existing shared ACME webroot
           ansible.builtin.stat:
-            path: /var/lib/letsencrypt/.well-known/acme-challenge
+            path: /var/lib/letsencrypt
           register: __elastic_access_webroot
 
         - name: Require the already prepared shared challenge directory
@@ -456,11 +458,15 @@
               when: __elastic_access_http_write is changed
 
             - name: Require exact public DNS before certificate issuance
-              ansible.builtin.command:
-                argv: [dig, '@8.8.8.8', "{{ __elastic_access.hostname }}.", A, +short, +time=3, +tries=1]
-              changed_when: false
+              ansible.builtin.getent:
+                database: ahostsv4
+                key: "{{ __elastic_access.hostname }}"
+                service: dns
+                fail_key: false
               register: __elastic_access_public_dns
-              until: __elastic_access_public_dns.rc == 0 and __elastic_access_public_dns.stdout_lines | unique | list == [__elastic_access.public_ipv4]
+              until: >-
+                (__elastic_access_public_dns.ansible_facts.getent_ahostsv4 |
+                 default({}) | list | unique | sort) == [__elastic_access.public_ipv4]
               retries: 30
               delay: 10
 
